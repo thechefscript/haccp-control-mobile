@@ -1,0 +1,23 @@
+{
+  "name": "haccp-control-mobile",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Native Android shell for HACCP Control v3.9.2.1",
+  "scripts": {
+    "android:add": "npx cap add android",
+    "android:sync": "npm run mobile:runtime && npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:run": "npx cap run android",
+    "cap:doctor": "npx cap doctor",
+    "mobile:runtime": "powershell -ExecutionPolicy Bypass -File ./scripts/build-mobile-runtime.ps1"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@supabase/supabase-js": "^2.117.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0",
+    "typescript": "^5.9.3"
+  }
+}

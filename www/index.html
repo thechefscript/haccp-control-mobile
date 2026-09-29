@@ -1,0 +1,1331 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="Multi-user HACCP kitchen temperature monitoring and corrective-action system.">
+  <title>Kitchen HACCP Control</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/supabase.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <link rel="shortcut icon" href="/favicon.png">
+</head>
+<body>
+  <div id="toast" class="toast hidden" role="status"></div>
+  <dialog id="overdueDialog" class="modal small-modal overdue-modal">
+    <div class="overdue-panel">
+      <div class="overdue-icon">!</div>
+      <div class="eyebrow overdue-eyebrow" data-i18n="monitor.overdueTitle">TEMPERATURE CHECK OVERDUE</div>
+      <h2 id="overdueRoundName">Opening · 07:00</h2>
+      <p data-i18n="monitor.overdueBody">The scheduled temperature round is more than 30 minutes overdue. Please complete the remaining equipment now.</p>
+      <div id="overdueRemaining" class="overdue-count"></div>
+      <ul id="overdueEquipmentList" class="overdue-list"></ul>
+      <div class="modal-actions overdue-actions">
+        <button id="overdueDismiss" type="button" class="secondary" data-i18n="monitor.dismiss">Remind me later</button>
+        <button id="overdueGoCheck" type="button" class="danger-action" data-i18n="monitor.goCheck">Open Storage Temperature</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="processOverdueDialog" class="modal small-modal overdue-modal">
+    <div class="overdue-panel">
+      <div class="overdue-icon">!</div>
+      <div class="eyebrow overdue-eyebrow">FOOD PROCESS OVERDUE</div>
+      <h2 id="processOverdueTitle">Temperature check required</h2>
+      <p id="processOverdueBody">One or more active food processes need immediate attention.</p>
+      <div id="processOverdueCount" class="overdue-count"></div>
+      <ul id="processOverdueList" class="overdue-list"></ul>
+      <div class="modal-actions overdue-actions">
+        <button id="processOverdueDismiss" type="button" class="secondary">Remind me later</button>
+        <button id="processOverdueGo" type="button" class="danger-action">Open Food Process</button>
+      </div>
+    </div>
+  </dialog>
+
+
+  <dialog id="signupSuccessDialog" class="modal small-modal">
+    <div style="padding:22px;display:grid;gap:14px">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">ACCOUNT CREATED</div>
+          <h2>Check your email</h2>
+        </div>
+      </div>
+      <p style="margin:0;line-height:1.6">We sent a verification link to <strong id="signupSuccessEmail"></strong>. Please verify your email address before signing in.</p>
+      <p class="small muted" style="margin:0">If you do not see it, check your spam or junk folder. Delivery can sometimes take a few minutes.</p>
+      <div class="modal-actions">
+        <button id="signupSuccessOk" class="primary" type="button">Got it</button>
+      </div>
+    </div>
+  </dialog>
+
+  <section id="authScreen" class="auth-shell">
+    <div class="auth-brand">
+      <div class="brand-mark">H</div>
+      <div>
+        <div class="eyebrow">PROFESSIONAL KITCHEN</div>
+        <h1>HACCP Control</h1>
+        <p>Temperature monitoring, deviations, verification and daily records.</p>
+      </div>
+    </div>
+    <div class="card auth-card">
+      <div class="auth-tabs">
+        <button class="tab active" data-auth-tab="signin">Sign in</button>
+        <button class="tab" data-auth-tab="signup">Create account</button>
+      </div>
+
+      <form id="signInForm" class="auth-form">
+        <label>Email<input id="signInEmail" type="email" autocomplete="email" required></label>
+        <label>Password<input id="signInPassword" type="password" autocomplete="current-password" required></label>
+        <div class="auth-help-row"><button id="forgotPasswordBtn" class="auth-link" type="button">Forgot password?</button></div>
+        <button class="primary wide" type="submit">Sign in</button>
+      </form>
+
+      <form id="signUpForm" class="auth-form hidden">
+        <label>Full name<input id="signUpName" type="text" autocomplete="name" required></label>
+        <label>Email<input id="signUpEmail" type="email" autocomplete="email" required></label>
+        <label>Password<input id="signUpPassword" type="password" autocomplete="new-password" minlength="8" required></label>
+        <button class="primary wide" type="submit">Create account</button>
+        <p class="small muted">New staff accounts must be added to the kitchen by an Owner or Manager after registration.</p>
+      </form>
+      <div id="authMessage" class="message"></div>
+      <div class="demo-note" id="demoNote">Configure <code>config.js</code> to connect your Supabase project.</div>
+    </div>
+  </section>
+
+  <dialog id="forgotPasswordDialog" class="modal small-modal">
+    <form id="forgotPasswordForm">
+      <div class="modal-head">
+        <div><div class="eyebrow">ACCOUNT RECOVERY</div><h2>Reset your password</h2></div>
+        <button type="button" id="closeForgotPassword" class="icon-btn" aria-label="Close">×</button>
+      </div>
+      <p class="small muted auth-dialog-copy">Enter your account email. We’ll send you a secure password-reset link.</p>
+      <label>Email<input id="forgotPasswordEmail" type="email" autocomplete="email" required></label>
+      <div id="forgotPasswordMessage" class="message"></div>
+      <div class="modal-actions">
+        <button id="cancelForgotPassword" class="secondary" type="button">Cancel</button>
+        <button class="primary" type="submit">Send reset link</button>
+      </div>
+    </form>
+  </dialog>
+
+  <section id="passwordActionScreen" class="auth-shell hidden">
+    <div class="auth-brand">
+      <div class="brand-mark">H</div>
+      <div>
+        <div class="eyebrow">SECURE ACCOUNT SETUP</div>
+        <h1>HACCP Control</h1>
+        <p id="passwordActionBrandCopy">Create a secure password to finish setting up your account.</p>
+      </div>
+    </div>
+    <div class="card auth-card">
+      <div class="eyebrow" id="passwordActionEyebrow">ACCOUNT SETUP</div>
+      <h2 id="passwordActionTitle">Create your password</h2>
+      <p id="passwordActionCopy" class="muted">Choose a password for your HACCP Control account.</p>
+      <div id="passwordActionEmail" class="account-email hidden"></div>
+      <form id="passwordActionForm" class="auth-form">
+        <label>New password<input id="newAccountPassword" type="password" autocomplete="new-password" minlength="8" required></label>
+        <label>Confirm password<input id="confirmAccountPassword" type="password" autocomplete="new-password" minlength="8" required></label>
+        <button id="passwordActionSubmit" class="primary wide" type="submit">Create password</button>
+      </form>
+      <div id="passwordActionMessage" class="message"></div>
+      <button id="passwordActionCancel" class="text-btn auth-cancel-link" type="button">Back to sign in</button>
+    </div>
+  </section>
+
+  <section id="bootstrapScreen" class="auth-shell hidden">
+    <div class="card auth-card">
+      <div class="eyebrow">FIRST-TIME SETUP</div>
+      <h2>Create your kitchen workspace</h2>
+      <p class="muted">Only use this on your new Supabase project before inviting staff.</p>
+      <form id="bootstrapForm" class="auth-form">
+        <label>Kitchen / outlet name<input id="bootstrapName" required placeholder="e.g. Main Kitchen"></label>
+        <label>Location<input id="bootstrapLocation" placeholder="e.g. Hotel Main Kitchen"></label>
+        <label>Timezone<input id="bootstrapTimezone" value="Asia/Makassar" required></label>
+        <button class="primary wide" type="submit">Create Kitchen & Become Owner</button>
+      </form>
+      <button id="bootstrapLogout" class="secondary wide">Sign out</button>
+    </div>
+  </section>
+
+  <section id="awaitingScreen" class="auth-shell hidden">
+    <div class="card auth-card">
+      <div class="eyebrow">ACCOUNT CREATED</div>
+      <h2>Waiting for kitchen access</h2>
+      <p>Your account is active, but it has not been assigned to a kitchen yet.</p>
+      <p class="muted">Ask the kitchen Owner or Manager to add your email in <strong>Team</strong>, then press Refresh Access.</p>
+      <div class="stack">
+        <button id="refreshAccessBtn" class="primary wide">Refresh Access</button>
+        <button id="awaitingLogout" class="secondary wide">Sign out</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="appShell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand compact">
+        <div class="brand-mark">H</div>
+        <div><strong>HACCP Control</strong><small id="sidebarKitchen">Kitchen</small></div>
+      </div>
+      <nav id="nav" class="nav">
+        <button data-page="dashboard" class="active"><span>▦</span><span data-i18n="nav.dashboard">Dashboard</span></button>
+        <button data-page="notifications"><span>♢</span><span id="navNotificationsLabel">Notifications</span> <b id="navNotificationBadge" class="nav-badge hidden">0</b></button>
+        <div class="nav-section-label" data-i18n="nav.section.monitoring">MONITORING</div>
+        <button data-page="check"><span>◫</span><span data-i18n="nav.check">Storage Temperature</span></button>
+        <button data-page="receiving"><span>⇩</span><span data-i18n="nav.receiving">Receiving Control</span> <b id="navReceivingBadge" class="nav-badge hidden">0</b></button>
+        <button data-page="thawing"><span>❄</span><span id="navThawingLabel">Thawing Control</span> <b id="navThawingBadge" class="nav-badge hidden">0</b></button>
+        <button data-page="process"><span>↻</span><span data-i18n="nav.process">Food Process Control</span></button>
+        <div class="nav-section-label" data-i18n="nav.section.control">CONTROL</div>
+        <button data-page="corrective"><span>!</span><span data-i18n="nav.corrective">Corrective Actions</span> <b id="navDeviationBadge" class="nav-badge hidden">0</b></button>
+        <button data-page="calibration" data-min-role="supervisor"><span>⌁</span><span data-i18n="nav.calibration">Calibration</span> <b id="navCalibrationBadge" class="nav-badge hidden">0</b></button>
+        <button data-page="sanitation"><span>✦</span><span data-i18n="nav.sanitation">Cleaning & Sanitation</span> <b id="navSanitationBadge" class="nav-badge hidden">0</b></button>
+        <button data-page="allergen"><span>◇</span><span data-i18n="nav.allergen">Allergen Control</span></button>
+        <div class="nav-section-label">TRAINING</div>
+        <button data-page="training"><span>✓</span><span>My Training</span></button>
+        <div class="nav-section-label" data-i18n="nav.section.records">RECORDS</div>
+        <button data-page="records"><span>≡</span><span data-i18n="nav.records">HACCP Records</span></button>
+        <button data-page="management" data-min-role="manager"><span>▤</span><span id="navManagementLabel">Management Review</span></button>
+        <div class="nav-section-label" data-min-role="manager" data-i18n="nav.section.configuration">CONFIGURATION</div>
+        <button data-page="equipment" data-min-role="manager"><span>□</span><span data-i18n="nav.equipment">Equipment</span></button>
+        <button data-page="limits" data-min-role="manager"><span>◎</span><span data-i18n="nav.limits">HACCP Limits</span></button>
+        <button data-page="process-settings" data-min-role="manager"><span>⌁</span><span data-i18n="nav.processSettings">Process Standards</span></button>
+        <button data-page="receiving-settings" data-min-role="manager"><span>⇩</span><span data-i18n="nav.receivingSettings">Receiving Settings</span></button>
+        <button data-page="thawing-settings" data-min-role="manager"><span>❄</span><span id="navThawingSettingsLabel">Thawing Standards</span></button>
+        <button data-page="sanitation-settings" data-min-role="manager"><span>✦</span><span data-i18n="nav.sanitationSettings">Sanitation Settings</span></button>
+        <button data-page="allergen-settings" data-min-role="manager"><span>◇</span><span data-i18n="nav.allergenSettings">Allergen Settings</span></button>
+        <button data-page="training-settings" data-min-role="manager"><span>✓</span><span>Training Settings</span></button>
+        <button data-page="team" data-min-role="manager"><span>♙</span><span data-i18n="nav.team">Team</span></button>
+        <button data-page="property" data-min-role="admin"><span>⌂</span><span data-i18n="nav.property">Property Information</span></button>
+        <button data-page="qr" data-min-role="manager"><span>⌗</span><span data-i18n="nav.qr">QR Labels</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <label class="language-control"><span data-i18n="common.language">Language</span><select id="languageSelect" aria-label="Language"><option value="en">English</option><option value="id">Bahasa Indonesia</option></select></label>
+        <button id="profileBtn" class="profile-trigger" type="button" aria-haspopup="dialog" aria-controls="profileDialog">
+          <span class="user-chip">
+            <strong id="currentUserName">User</strong>
+            <span><span id="currentRole">staff</span> · <span data-i18n="common.profile">My Profile</span></span>
+          </span>
+          <span class="profile-trigger-arrow" aria-hidden="true">›</span>
+        </button>
+        <button id="logoutBtn" class="ghost sidebar-logout" data-i18n="common.signOut">Sign out</button>
+      </div>
+    </aside>
+    <button id="sidebarScrim" class="sidebar-scrim" type="button" aria-label="Close menu" tabindex="-1"></button>
+
+    <main class="main">
+      <header class="mobile-header">
+        <div class="brand compact"><div class="brand-mark">H</div><strong>HACCP Control</strong></div>
+        <div class="mobile-header-actions">
+          <button id="mobileNotificationBtn" class="icon-btn notification-bell" type="button" aria-label="Notifications">♢<b id="mobileNotificationBadge" class="nav-badge hidden">0</b></button>
+          <button id="mobileMenuBtn" class="icon-btn" type="button" aria-label="Open navigation" aria-expanded="false">☰</button>
+        </div>
+      </header>
+
+      <div class="page-wrap">
+        <section id="page-dashboard" class="page active">
+          <div class="page-head">
+            <div><div id="dashboardEyebrow" class="eyebrow">TODAY</div><h1 id="dashboardTitle">Kitchen Dashboard</h1><p id="dashboardDate" class="muted"></p></div>
+            <div class="page-head-actions"><button data-go="check" class="primary" id="dashboardPrimaryAction">+ Storage Temperature</button><button data-go="management" data-min-role="manager" class="secondary" id="dashboardManagementBtn">Management Review</button></div>
+          </div>
+
+          <div class="stats-grid">
+            <article class="stat card"><span id="dashChecksLabel">Checks</span><strong id="statChecks">0</strong><small id="dashChecksSmall">today</small></article>
+            <article class="stat card"><span id="dashPassLabel">Passed</span><strong id="statPass">0</strong><small id="dashPassSmall">within limits</small></article>
+            <article class="stat card"><span id="dashOutLabel">Deviations</span><strong id="statOut">0</strong><small id="dashOutSmall">out of limit</small></article>
+            <article class="stat card"><span id="dashActionsLabel">Open actions</span><strong id="statOpenActions">0</strong><small id="dashActionsSmall">need completion</small></article>
+          </div>
+
+          <div class="two-col">
+            <article class="card">
+              <div class="section-head"><div><div id="dashRecentEyebrow" class="eyebrow">RECENT</div><h2 id="dashRecentTitle">Latest checks</h2></div><button data-go="records" class="text-btn" id="dashViewRecords">View records</button></div>
+              <div id="recentChecks" class="list empty">No checks yet.</div>
+            </article>
+            <article class="card">
+              <div class="section-head"><div><div id="dashAttentionEyebrow" class="eyebrow">ATTENTION</div><h2 id="dashOpenTitle">Open deviations</h2></div><button data-go="corrective" class="text-btn" id="dashOpenActions">Open actions</button></div>
+              <div id="dashboardDeviations" class="list empty">No open deviations.</div>
+            </article>
+          </div>
+
+          <article class="card">
+            <div class="section-head"><div><div id="dashDailyEyebrow" class="eyebrow">DAILY CONTROL</div><h2 id="dashVerificationTitle">Verification status</h2></div></div>
+            <div id="dashboardVerification" class="verification-strip">Not verified yet.</div>
+          </article>
+
+          <div id="dashboardManagementPanel" data-min-role="manager" class="management-dashboard-block">
+            <div class="section-title-row"><div><div id="dashMgmtEyebrow" class="eyebrow">MANAGEMENT SNAPSHOT</div><h2 id="dashMgmtTitle">Food-safety controls at a glance</h2><p id="dashMgmtDescription" class="muted">Live status plus the last 30 days of HACCP activity.</p></div><button data-go="management" class="text-btn" id="dashMgmtOpen">Open full review</button></div>
+            <div class="management-module-grid">
+              <article class="card management-module"><span id="dashStorageLabel">Storage completion</span><strong id="dashStorageProgress">—</strong><small id="dashStorageDetail">due rounds today</small></article>
+              <article class="card management-module"><span id="dashProcessLabel">Food process</span><strong id="dashProcessActive">—</strong><small id="dashProcessDetail">active batches</small></article>
+              <article class="card management-module"><span id="dashReceivingLabel">Receiving</span><strong id="dashReceivingRejected">—</strong><small id="dashReceivingDetail">rejected · 30 days</small></article>
+              <article class="card management-module"><span id="dashSanitationLabel">Sanitation</span><strong id="dashSanitationProgress">—</strong><small id="dashSanitationDetail">PASS · 30 days</small></article>
+              <article class="card management-module"><span id="dashCalibrationLabel">Calibration</span><strong id="dashCalibrationDue">—</strong><small id="dashCalibrationDetail">devices need attention</small></article>
+              <article class="card management-module"><span id="dashTrainingLabel">Training</span><strong id="dashTrainingAttention">—</strong><small id="dashTrainingDetail">overdue / incomplete</small></article>
+              <article class="card management-module"><span id="dashAllergenLabel">Allergen checks</span><strong id="dashAllergenChecks">—</strong><small id="dashAllergenDetail">30 days</small></article>
+              <article class="card management-module attention-module"><span id="dashPendingLabel">Attention items</span><strong id="dashPendingTotal">—</strong><small id="dashPendingDetail">open / overdue</small></article>
+            </div>
+            <div class="two-col management-dashboard-columns">
+              <article class="card"><div class="section-head"><div><div id="dashMgmtAttentionEyebrow" class="eyebrow">ACTION REQUIRED</div><h2 id="dashMgmtAttentionTitle">Outstanding controls</h2></div></div><div id="managementAttention" class="management-attention-list"><div class="empty">Loading…</div></div></article>
+              <article class="card"><div class="section-head"><div><div id="dashTrendEyebrow" class="eyebrow">30-DAY TREND</div><h2 id="dashTrendTitle">Deviation activity</h2></div></div><div id="dashboardTrend" class="management-trend"><div class="empty">Loading…</div></div></article>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-check" class="page">
+          <div class="page-head"><div><div class="eyebrow" data-i18n="monitor.eyebrow">MONITORING</div><h1 data-i18n="monitor.title">Storage Temperature</h1><p class="muted" data-i18n="monitor.description">All active equipment in one checklist. Storage type and HACCP limit are taken automatically from Equipment Settings.</p></div></div>
+          <div class="card monitor-toolbar">
+            <div><strong data-i18n="monitor.instructionTitle">Enter temperatures as you move through the kitchen.</strong><span data-i18n="monitor.instructionBody">Each Save records the current time automatically. Out-of-limit readings open corrective action immediately.</span></div>
+            <button id="refreshMonitoring" class="secondary" type="button" data-i18n="common.refresh">Refresh</button>
+          </div>
+          <div id="monitorLocationTabs" class="monitor-location-tabs" role="tablist"></div>
+          <div id="monitoringList" class="monitoring-list"></div>
+        </section>
+
+        <section id="page-receiving" class="page">
+          <div class="page-head">
+            <div><div class="eyebrow" data-i18n="receiving.eyebrow">INCOMING FOOD CONTROL</div><h1 data-i18n="receiving.title">Receiving Control</h1><p class="muted" data-i18n="receiving.description">Check approved supplier, product condition and receiving requirements before food enters storage or production.</p></div>
+            <div class="form-actions"><button id="refreshReceiving" class="secondary" type="button" data-i18n="common.refresh">Refresh</button><button id="newReceivingBtn" class="primary" type="button" data-i18n="receiving.newCheck">+ Receiving Check</button></div>
+          </div>
+          <div class="stats-grid receiving-stats">
+            <article class="stat card"><span data-i18n="receiving.deliveries">Deliveries</span><strong id="receivingTotalCount">0</strong><small data-i18n="receiving.today">today</small></article>
+            <article class="stat card"><span data-i18n="receiving.accepted">Accepted</span><strong id="receivingAcceptedCount">0</strong><small>PASS</small></article>
+            <article class="stat card"><span data-i18n="receiving.rejected">Rejected</span><strong id="receivingRejectedCount">0</strong><small>FAIL</small></article>
+            <article class="stat card"><span data-i18n="receiving.pendingVerify">Awaiting verify</span><strong id="receivingPendingCount">0</strong><small data-i18n="receiving.rejections">rejections</small></article>
+          </div>
+          <article class="card receiving-guidance">
+            <div><strong data-i18n="receiving.guidanceTitle">Receive only against an approved supplier and an approved receiving standard.</strong><span data-i18n="receiving.guidanceBody">Temperature limits are property-configured. Packaging and transport condition are included in the acceptance decision when required by the selected standard.</span></div>
+            <button data-go="receiving-settings" data-min-role="manager" class="secondary compact-btn" type="button" data-i18n="receiving.manageSettings">Manage Suppliers & Standards</button>
+          </article>
+          <div id="receivingTodayList" class="receiving-list"></div>
+        </section>
+
+        <section id="page-thawing" class="page">
+          <div class="page-head">
+            <div><div id="thawingEyebrow" class="eyebrow">THAWING / DEFROST CONTROL</div><h1 id="thawingTitle">Thawing Control</h1><p id="thawingDescription" class="muted">Control frozen-food thawing with approved methods, repeated temperature checks and corrective actions.</p></div>
+            <div class="form-actions"><button id="refreshThawing" class="secondary" type="button">Refresh</button><button id="newThawingBatchBtn" class="primary" type="button">+ Start Thawing</button></div>
+          </div>
+          <div class="stats-grid thawing-stats">
+            <article class="stat card"><span id="thawingActiveLabel">Active</span><strong id="thawingActiveCount">0</strong><small id="thawingActiveSmall">thawing batches</small></article>
+            <article class="stat card"><span id="thawingDueLabel">Check due</span><strong id="thawingDueCount">0</strong><small id="thawingDueSmall">needs temperature check</small></article>
+            <article class="stat card"><span id="thawingOutLabel">Deviations</span><strong id="thawingOutCount">0</strong><small id="thawingOutSmall">open OUT readings</small></article>
+            <article class="stat card"><span id="thawingReadyLabel">Ready today</span><strong id="thawingReadyCount">0</strong><small id="thawingReadySmall">completed for use</small></article>
+          </div>
+          <article class="card thawing-guidance"><div><strong id="thawingGuidanceTitle">Use only a property-approved thawing method.</strong><span id="thawingGuidanceBody">Monitoring interval, maximum temperature and duration come from the selected standard. An OUT reading requires corrective action.</span></div><button data-go="thawing-settings" data-min-role="manager" class="secondary compact-btn" type="button" id="manageThawingStandards">Manage Thawing Standards</button></article>
+          <div id="thawingBatchList" class="thawing-batch-list"></div>
+        </section>
+
+        <section id="page-corrective" class="page">
+          <div class="page-head"><div><div class="eyebrow" data-i18n="corrective.eyebrow">DEVIATIONS</div><h1 data-i18n="corrective.title">Corrective Actions</h1><p class="muted" data-i18n="corrective.description">Complete action for every out-of-limit record and verify it when appropriate.</p></div></div>
+          <div class="filter-row"><select id="correctiveFilter"><option value="open" data-i18n="corrective.openOnly">Open only</option><option value="all" data-i18n="common.all">All</option></select><button id="refreshCorrective" class="secondary" data-i18n="common.refresh">Refresh</button></div>
+          <div id="correctiveList" class="card-list"></div>
+        </section>
+
+        <section id="page-calibration" class="page">
+          <div class="page-head">
+            <div><div class="eyebrow" data-i18n="calibration.eyebrow">VERIFICATION CONTROL</div><h1 data-i18n="calibration.title">Thermometer Calibration</h1><p class="muted" data-i18n="calibration.description">Register measuring devices, record calibration checks, control due dates and verify results.</p></div>
+            <div class="form-actions"><button id="refreshCalibration" class="secondary" type="button" data-i18n="common.refresh">Refresh</button><button id="addCalibrationDeviceBtn" class="secondary" type="button" data-min-role="manager" data-i18n="calibration.addDevice">+ Add Thermometer</button><button id="newCalibrationBtn" class="primary" type="button" data-min-role="supervisor" data-i18n="calibration.newCheck">+ Calibration Check</button></div>
+          </div>
+          <div class="stats-grid calibration-stats">
+            <article class="stat card"><span data-i18n="calibration.registered">Registered</span><strong id="calibrationDeviceCount">0</strong><small data-i18n="calibration.activeDevices">active devices</small></article>
+            <article class="stat card"><span data-i18n="calibration.dueSoon">Due soon</span><strong id="calibrationDueSoonCount">0</strong><small data-i18n="calibration.next7Days">next 7 days</small></article>
+            <article class="stat card"><span data-i18n="calibration.overdue">Overdue</span><strong id="calibrationOverdueCount">0</strong><small data-i18n="calibration.requiresCheck">requires check</small></article>
+            <article class="stat card"><span data-i18n="calibration.failed">Failed</span><strong id="calibrationFailedCount">0</strong><small data-i18n="calibration.outOfService">out of service</small></article>
+          </div>
+          <article class="card calibration-guidance">
+            <div><strong data-i18n="calibration.guidanceTitle">Calibration is a verification control.</strong><span data-i18n="calibration.guidanceBody">Use the reference temperature required by your approved procedure. Boiling-point reference temperature must reflect local conditions; it is not hard-coded.</span></div>
+          </article>
+          <div class="two-col calibration-grid">
+            <article class="card">
+              <div class="section-head"><div><div class="eyebrow" data-i18n="calibration.deviceRegister">DEVICE REGISTER</div><h2 data-i18n="calibration.deviceStatus">Thermometer status</h2></div></div>
+              <div id="calibrationDeviceList" class="calibration-device-list"></div>
+            </article>
+            <article class="card">
+              <div class="section-head"><div><div class="eyebrow" data-i18n="calibration.recentEyebrow">RECENT CHECKS</div><h2 data-i18n="calibration.recentTitle">Calibration activity</h2></div><span id="calibrationRecentCount" class="pill">0</span></div>
+              <div id="calibrationRecentList" class="calibration-recent-list"></div>
+            </article>
+          </div>
+        </section>
+
+
+        <section id="page-sanitation" class="page">
+          <div class="page-head">
+            <div><div class="eyebrow">SSOP CONTROL</div><h1>Cleaning & Sanitation</h1><p class="muted">Complete scheduled sanitation tasks, record chemical checks, document deviations and obtain supervisor verification where required.</p></div>
+            <div class="form-actions"><button id="refreshSanitation" class="secondary" type="button">Refresh</button><button id="newSanitationRecordBtn" class="primary" type="button">+ Sanitation Check</button></div>
+          </div>
+          <div class="stats-grid sanitation-stats">
+            <article class="stat card"><span>Due today</span><strong id="sanitationDueCount">0</strong><small>scheduled tasks</small></article>
+            <article class="stat card"><span>Completed</span><strong id="sanitationCompletedCount">0</strong><small>today</small></article>
+            <article class="stat card"><span>Failed</span><strong id="sanitationFailedCount">0</strong><small>needs action</small></article>
+            <article class="stat card"><span>Awaiting verify</span><strong id="sanitationPendingCount">0</strong><small>supervisor review</small></article>
+          </div>
+          <article class="card sanitation-guidance"><div><strong>Follow the approved SSOP for each area or equipment item.</strong><span>Chemical concentration and contact time are property-configured. A failed sanitation check requires corrective action and photo evidence.</span></div><button data-go="sanitation-settings" data-min-role="manager" class="secondary compact-btn" type="button">Manage Sanitation Standards</button></article>
+          <div id="sanitationTaskList" class="sanitation-task-list"></div>
+        </section>
+
+
+
+        <section id="page-allergen" class="page">
+          <div class="page-head">
+            <div><div class="eyebrow" data-i18n="allergen.eyebrow">ALLERGEN CONTROL</div><h1 data-i18n="allergen.title">Allergen Control</h1><p class="muted" data-i18n="allergen.description">Review declared allergens and cross-contact risks using the property-approved menu allergen profiles.</p></div>
+            <div class="form-actions"><button id="refreshAllergen" class="secondary" type="button" data-i18n="common.refresh">Refresh</button><button data-go="allergen-settings" data-min-role="manager" class="secondary" type="button" data-i18n="allergen.manage">Manage Allergen Profiles</button></div>
+          </div>
+          <div class="stats-grid allergen-stats">
+            <article class="stat card"><span data-i18n="allergen.publishedMenus">Published menus</span><strong id="allergenMenuCount">0</strong><small data-i18n="allergen.currentProfiles">current profiles</small></article>
+            <article class="stat card"><span data-i18n="allergen.activeAllergens">Active allergens</span><strong id="allergenLibraryCount">0</strong><small data-i18n="allergen.propertyLibrary">property library</small></article>
+            <article class="stat card"><span data-i18n="allergen.checksToday">Guest checks</span><strong id="allergenChecksTodayCount">0</strong><small data-i18n="allergen.today">today</small></article>
+            <article class="stat card"><span data-i18n="allergen.reviewDue">Review due</span><strong id="allergenReviewDueCount">0</strong><small data-i18n="allergen.profileReview">menu profiles</small></article>
+          </div>
+          <article class="card allergen-guidance">
+            <div><strong data-i18n="allergen.guidanceTitle">Use this as an allergen-information control, not a guarantee that a dish is allergen-free.</strong><span data-i18n="allergen.guidanceBody">Ingredient specifications, substitutions, shared equipment and preparation practices can change. Follow the property's allergen procedure before serving an allergy-related order.</span></div>
+          </article>
+          <div class="two-col allergen-control-grid">
+            <article class="card allergen-check-card">
+              <div class="section-head"><div><div class="eyebrow" data-i18n="allergen.guestCheck">GUEST ALLERGEN CHECK</div><h2 data-i18n="allergen.checkDish">Check a Menu Item</h2></div></div>
+              <form id="allergenGuestCheckForm" class="stack-form">
+                <label><span data-i18n="allergen.requestedAllergens">Requested allergen(s)</span><div id="allergenCheckAllergens" class="allergen-chip-grid"></div></label>
+                <label><span data-i18n="allergen.menuItem">Menu item</span><select id="allergenCheckMenu" required></select></label>
+                <div class="form-grid two"><label><span data-i18n="allergen.orderRef">Order / Table / Room reference</span><input id="allergenCheckOrderRef" placeholder="Optional"></label><label><span data-i18n="allergen.serviceLocation">Service location</span><input id="allergenCheckLocation" placeholder="Restaurant / Banquet / Room Service"></label></div>
+                <label><span data-i18n="allergen.notes">Notes</span><textarea id="allergenCheckNotes" rows="2" placeholder="Optional"></textarea></label>
+                <div id="allergenCheckPreview" class="allergen-result-preview neutral" data-i18n="allergen.selectPrompt">Select at least one allergen and a menu item.</div>
+                <button class="primary" type="submit" data-i18n="allergen.recordCheck">Record Allergen Check</button>
+              </form>
+            </article>
+            <article class="card allergen-recent-card">
+              <div class="section-head"><div><div class="eyebrow" data-i18n="allergen.recentEyebrow">RECENT CHECKS</div><h2 data-i18n="allergen.recentTitle">Today's Allergen Checks</h2></div><span id="allergenRecentCount" class="pill">0</span></div>
+              <div id="allergenRecentChecks" class="allergen-recent-list"></div>
+            </article>
+          </div>
+          <article class="card allergen-matrix-card">
+            <div class="section-head records-section-head"><div><div class="eyebrow" data-i18n="allergen.matrixEyebrow">MENU CONTROL</div><h2 data-i18n="allergen.matrixTitle">Menu Allergen Matrix</h2></div><div class="record-actions"><button id="allergenMatrixViewBtn" class="secondary" type="button" data-i18n="records.view">View Record</button><button id="allergenMatrixDownloadBtn" class="secondary" type="button" data-i18n="records.download">Download PDF</button><button id="allergenMatrixPrintBtn" class="primary" type="button" data-i18n="records.print">Print</button></div></div>
+            <div class="filter-row records-filter-row"><label class="record-filter"><span data-i18n="records.search">Search</span><input id="allergenMatrixSearch" placeholder="Menu code / name"></label><label class="record-filter"><span data-i18n="allergen.category">Category</span><select id="allergenMatrixCategory"><option value="all">All</option></select></label><label class="record-filter"><span data-i18n="allergen.outlet">Outlet</span><select id="allergenMatrixOutlet"><option value="all">All</option></select></label></div>
+            <div class="table-wrap allergen-matrix-wrap"><table class="allergen-matrix-table"><thead id="allergenMatrixHead"></thead><tbody id="allergenMatrixBody"></tbody></table></div>
+            <p class="small muted" data-i18n="allergen.matrixLegend">C = Contains · X = Cross-contact risk · — = No declared match in the approved profile. Always follow the property's allergen procedure.</p>
+          </article>
+        </section>
+
+        <section id="page-training" class="page">
+          <div class="page-head">
+            <div><div class="eyebrow" id="trainingEyebrow">TRAINING & COMPETENCY</div><h1 id="trainingTitle">My Training</h1><p class="muted" id="trainingDescription">Complete assigned knowledge assessments and practical competency checks.</p></div>
+            <button id="refreshTraining" class="secondary" type="button">Refresh</button>
+          </div>
+          <div class="stats-grid training-stats">
+            <article class="stat card"><span id="trainingAssignedLabel">Assigned</span><strong id="trainingAssignedCount">0</strong><small id="trainingAssignedSmall">active modules</small></article>
+            <article class="stat card"><span id="trainingPassedLabel">Knowledge passed</span><strong id="trainingPassedCount">0</strong><small>PASS</small></article>
+            <article class="stat card"><span id="trainingCompetentLabel">Competent</span><strong id="trainingCompetentCount">0</strong><small id="trainingCompetentSmall">completed</small></article>
+            <article class="stat card"><span id="trainingDueLabel">Due / Action</span><strong id="trainingDueCount">0</strong><small id="trainingDueSmall">requires attention</small></article>
+          </div>
+          <article class="card training-guidance">
+            <div><strong id="trainingGuidanceTitle">Knowledge + practical skill = competency.</strong><span id="trainingGuidanceBody">Online assessments test knowledge. Operational modules can also require supervisor practical verification before competency is complete.</span></div>
+            <button data-go="training-settings" data-min-role="manager" class="secondary compact-btn" type="button">Manage Training</button>
+          </article>
+          <div id="trainingAssignmentList" class="training-assignment-list"></div>
+        </section>
+
+        <section id="page-records" class="page">
+          <div class="page-head">
+            <div><div class="eyebrow" data-i18n="records.eyebrow">RECORDKEEPING</div><h1 data-i18n="records.title">HACCP Records</h1><p class="muted" data-i18n="records.description">Central archive for storage, receiving, food process, calibration, corrective actions and verification status.</p></div>
+          </div>
+
+          <article class="card records-hub-toolbar">
+            <label class="inline-label"><span data-i18n="records.recordDate">Record date</span><input id="recordDate" type="date"></label>
+            <button id="refreshRecords" class="secondary" type="button" data-i18n="common.refresh">Refresh</button>
+          </article>
+
+          <div id="recordsTabs" class="records-tabs" role="tablist" aria-label="HACCP record type">
+            <button class="record-tab active" type="button" data-record-tab="storage" data-i18n="records.tab.storage">Storage Temperature</button>
+            <button class="record-tab" type="button" data-record-tab="receiving" data-i18n="records.tab.receiving">Receiving</button>
+            <button class="record-tab" type="button" data-record-tab="thawing" id="recordsTabThawing">Thawing</button>
+            <button class="record-tab" type="button" data-record-tab="process" data-i18n="records.tab.process">Food Process</button>
+            <button class="record-tab" type="button" data-record-tab="corrective" data-i18n="records.tab.corrective">Corrective Actions</button>
+            <button class="record-tab" type="button" data-record-tab="calibration" data-i18n="records.tab.calibration">Calibration</button>
+            <button class="record-tab" type="button" data-record-tab="sanitation" data-i18n="records.tab.sanitation">Sanitation</button>
+            <button class="record-tab" type="button" data-record-tab="allergen" data-i18n="records.tab.allergen">Allergen</button>
+            <button class="record-tab" type="button" data-record-tab="training">Training</button>
+            <button class="record-tab" type="button" data-record-tab="verification" data-i18n="records.tab.verification">Verification</button>
+          </div>
+
+          <div id="recordsPanelStorage" class="records-panel active" data-record-panel="storage">
+            <article class="card">
+              <div class="section-head records-section-head">
+                <div><div class="eyebrow">MONITORING RECORD</div><h2 data-i18n="records.storageTitle">Storage Temperature Records</h2></div>
+                <div class="record-actions"><button id="verifyDayBtn" class="secondary hidden" data-i18n="records.verifyDay">Verify Day</button><button id="storageViewBtn" class="secondary" type="button" data-i18n="records.view">View Record</button><button id="storageDownloadBtn" class="secondary" type="button" data-i18n="records.download">Download PDF</button><button id="storagePrintBtn" class="primary" type="button" data-i18n="records.print">Print</button></div>
+              </div>
+              <div class="filter-row records-filter-row">
+                <label class="record-filter"><span data-i18n="records.location">Location</span><select id="recordLocationFilter"><option value="all">All Locations</option></select></label>
+                <label class="record-filter"><span data-i18n="records.round">Round</span><select id="recordRoundFilter"><option value="all">All Rounds</option><option value="Opening">Opening</option><option value="Middle">Middle</option><option value="Closing">Closing</option></select></label>
+                <label class="record-filter"><span data-i18n="records.status">Status</span><select id="recordStatusFilter"><option value="all">All</option><option value="PASS">PASS</option><option value="OUT">OUT</option></select></label>
+              </div>
+              <div id="verificationBanner" class="verification-strip"></div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Time</th><th>Round</th><th>Equipment</th><th>HACCP point</th><th>Actual</th><th>Critical limit</th><th>Status</th><th>Staff</th><th>Batch</th></tr></thead>
+                  <tbody id="recordsBody"></tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+
+          <div id="recordsPanelReceiving" class="records-panel" data-record-panel="receiving">
+            <article class="card">
+              <div class="section-head records-section-head">
+                <div><div class="eyebrow">INCOMING FOOD RECORD</div><h2 data-i18n="records.receivingTitle">Receiving Records</h2></div>
+                <div class="record-actions"><button id="receivingViewBtn" class="secondary" type="button" data-i18n="records.view">View Record</button><button id="receivingDownloadBtn" class="secondary" type="button" data-i18n="records.download">Download PDF</button><button id="receivingPrintBtn" class="primary" type="button" data-i18n="records.print">Print</button></div>
+              </div>
+              <div class="filter-row records-filter-row">
+                <label class="record-filter"><span>Supplier</span><select id="receivingRecordSupplier"><option value="all">All Suppliers</option></select></label>
+                <label class="record-filter"><span data-i18n="records.status">Status</span><select id="receivingRecordStatus"><option value="all">All</option><option value="PASS">PASS / Accepted</option><option value="FAIL">FAIL / Rejected</option></select></label>
+                <label class="record-filter record-search"><span data-i18n="records.search">Search</span><input id="receivingRecordSearch" type="search" placeholder="Product / batch / delivery reference"></label>
+              </div>
+              <div id="receivingRecordsSummary" class="records-summary"></div>
+              <div class="table-wrap"><table class="receiving-record-table"><thead><tr><th>Time</th><th>Supplier</th><th>Product / Lot</th><th>Standard</th><th>Temperature</th><th>Packaging / Transport</th><th>Decision</th><th>Received by</th><th>Evidence / Verification</th></tr></thead><tbody id="receivingRecordsBody"></tbody></table></div>
+            </article>
+          </div>
+
+          <div id="recordsPanelThawing" class="records-panel" data-record-panel="thawing">
+            <article class="card">
+              <div class="section-head records-section-head"><div><div class="eyebrow">THAWING RECORD</div><h2 id="thawingRecordsTitle">Thawing / Defrost Records</h2></div><div class="record-actions"><button id="thawingRecordViewBtn" class="secondary" type="button">View Record</button><button id="thawingRecordDownloadBtn" class="secondary" type="button">Download PDF</button><button id="thawingRecordPrintBtn" class="primary" type="button">Print</button></div></div>
+              <div id="thawingRecordsSummary" class="records-summary"></div>
+              <div class="table-wrap"><table class="thawing-record-table"><thead><tr><th>Started</th><th>Product / Batch</th><th>Method</th><th>Location</th><th>Latest temp</th><th>Status</th><th>Staff</th><th>Action</th></tr></thead><tbody id="thawingRecordsBody"></tbody></table></div>
+            </article>
+          </div>
+
+          <div id="recordsPanelProcess" class="records-panel" data-record-panel="process">
+            <article class="card">
+              <div class="section-head records-section-head">
+                <div><div class="eyebrow">PROCESS RECORD</div><h2 data-i18n="records.processTitle">Food Process Records</h2></div>
+                <div class="record-actions"><button id="processViewBtn" class="secondary" type="button" data-i18n="records.view">View Record</button><button id="processDownloadBtn" class="secondary" type="button" data-i18n="records.download">Download PDF</button><button id="processPrintBtn" class="primary" type="button" data-i18n="records.print">Print</button></div>
+              </div>
+              <div class="filter-row records-filter-row">
+                <label class="record-filter"><span data-i18n="records.process">Process</span><select id="processRecordProcessFilter"><option value="all">All Processes</option><option value="cooking">Cooking</option><option value="cooling">Cooling</option><option value="reheating">Reheating</option><option value="hot_holding">Hot Holding</option><option value="cold_holding">Cold Holding</option></select></label>
+                <label class="record-filter"><span data-i18n="records.status">Status</span><select id="processRecordStatusFilter"><option value="all">All</option><option value="PASS">PASS</option><option value="OUT">OUT</option></select></label>
+                <label class="record-filter record-search"><span data-i18n="records.search">Search</span><input id="processRecordSearch" type="search" placeholder="Product / batch reference"></label>
+              </div>
+              <div id="processRecordsSummary" class="records-summary"></div>
+              <div id="processRecordsList" class="process-record-list"></div>
+            </article>
+          </div>
+
+          <div id="recordsPanelCorrective" class="records-panel" data-record-panel="corrective">
+            <article class="card">
+              <div class="section-head records-section-head"><div><div class="eyebrow">DEVIATION RECORD</div><h2 data-i18n="records.correctiveTitle">Corrective Action Records</h2></div></div>
+              <div class="filter-row records-filter-row">
+                <label class="record-filter"><span data-i18n="records.source">Source</span><select id="recordCorrectiveType"><option value="all">All Records</option><option value="storage">Storage Temperature</option><option value="process">Food Process</option><option value="sanitation">Cleaning &amp; Sanitation</option></select></label>
+                <label class="record-filter"><span data-i18n="records.verificationStatus">Verification status</span><select id="recordCorrectiveStatus"><option value="all">All</option><option value="required">Action Required</option><option value="awaiting">Awaiting Verification</option><option value="verified">Verified</option></select></label>
+              </div>
+              <div id="recordCorrectiveSummary" class="records-summary"></div>
+              <div id="recordCorrectiveList" class="card-list"></div>
+            </article>
+          </div>
+
+          <div id="recordsPanelCalibration" class="records-panel" data-record-panel="calibration">
+            <article class="card">
+              <div class="section-head records-section-head">
+                <div><div class="eyebrow" data-i18n="calibration.recordEyebrow">VERIFICATION RECORD</div><h2 data-i18n="calibration.recordsTitle">Calibration Records</h2></div>
+                <div class="record-actions"><button id="calibrationViewBtn" class="secondary" type="button" data-i18n="records.view">View Record</button><button id="calibrationDownloadBtn" class="secondary" type="button" data-i18n="records.download">Download PDF</button><button id="calibrationPrintBtn" class="primary" type="button" data-i18n="records.print">Print</button></div>
+              </div>
+              <div class="filter-row records-filter-row">
+                <label class="record-filter"><span data-i18n="records.status">Status</span><select id="calibrationRecordStatus"><option value="all">All</option><option value="PASS">PASS</option><option value="FAIL">FAIL</option></select></label>
+                <label class="record-filter"><span data-i18n="records.verificationStatus">Verification status</span><select id="calibrationRecordVerification"><option value="all">All</option><option value="pending">Pending</option><option value="verified">Verified</option></select></label>
+              </div>
+              <div id="calibrationRecordsSummary" class="records-summary"></div>
+              <div class="table-wrap">
+                <table class="calibration-record-table">
+                  <thead><tr><th>Time</th><th>Device</th><th>Method</th><th>Reference</th><th>Observed</th><th>Deviation / Tolerance</th><th>Result</th><th>Performed by</th><th>Verification</th></tr></thead>
+                  <tbody id="calibrationRecordsBody"></tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+
+
+          <div id="recordsPanelSanitation" class="records-panel" data-record-panel="sanitation">
+            <article class="card">
+              <div class="section-head records-section-head"><div><div class="eyebrow">SSOP RECORD</div><h2>Cleaning & Sanitation Records</h2></div><div class="record-actions"><button id="sanitationViewBtn" class="secondary" type="button">View Record</button><button id="sanitationDownloadBtn" class="secondary" type="button">Download PDF</button><button id="sanitationPrintBtn" class="primary" type="button">Print</button></div></div>
+              <div class="filter-row records-filter-row"><label class="record-filter"><span>Status</span><select id="sanitationRecordStatus"><option value="all">All</option><option value="PASS">PASS</option><option value="FAIL">FAIL</option></select></label><label class="record-filter"><span>Verification</span><select id="sanitationRecordVerification"><option value="all">All</option><option value="pending">Pending</option><option value="verified">Verified</option></select></label><label class="record-filter record-search"><span>Search</span><input id="sanitationRecordSearch" type="search" placeholder="Area / equipment / task"></label></div>
+              <div id="sanitationRecordsSummary" class="records-summary"></div>
+              <div class="table-wrap"><table><thead><tr><th>Time</th><th>Task</th><th>Area / Equipment</th><th>Chemical</th><th>Concentration</th><th>Visual</th><th>Result</th><th>Completed by</th><th>Evidence / Verification</th></tr></thead><tbody id="sanitationRecordsBody"></tbody></table></div>
+            </article>
+          </div>
+
+          <div id="recordsPanelAllergen" class="records-panel" data-record-panel="allergen">
+            <article class="card">
+              <div class="section-head records-section-head"><div><div class="eyebrow" data-i18n="allergen.recordEyebrow">ALLERGEN RECORD</div><h2 data-i18n="allergen.recordTitle">Guest Allergen Checks</h2></div><div class="record-actions"><button id="allergenRecordViewBtn" class="secondary" type="button" data-i18n="records.view">View Record</button><button id="allergenRecordDownloadBtn" class="secondary" type="button" data-i18n="records.download">Download PDF</button><button id="allergenRecordPrintBtn" class="primary" type="button" data-i18n="records.print">Print</button></div></div>
+              <div class="filter-row records-filter-row"><label class="record-filter"><span data-i18n="records.status">Status</span><select id="allergenRecordStatus"><option value="all">All</option><option value="DECLARED_CONTAINS">Declared Contains</option><option value="CROSS_CONTACT_RISK">Cross-contact Risk</option><option value="NO_DECLARED_MATCH">No Declared Match</option></select></label><label class="record-filter"><span data-i18n="records.search">Search</span><input id="allergenRecordSearch" placeholder="Menu / order / location"></label></div>
+              <div class="table-wrap"><table class="allergen-record-table"><thead><tr><th>Time</th><th>Menu item</th><th>Requested allergen(s)</th><th>Result</th><th>Order / location</th><th>Checked by</th><th>Notes</th></tr></thead><tbody id="allergenRecordsBody"></tbody></table></div>
+            </article>
+          </div>
+
+          <div id="recordsPanelTraining" class="records-panel" data-record-panel="training">
+            <article class="card">
+              <div class="section-head records-section-head"><div><div class="eyebrow">TRAINING RECORD</div><h2>Training & Assessment Records</h2></div></div>
+              <div id="trainingRecordsSummary" class="records-summary"></div>
+              <div class="table-wrap"><table><thead><tr><th>Time</th><th>Employee</th><th>Assessment</th><th>Version</th><th>Language</th><th>Attempt</th><th>Score</th><th>Result</th><th>Practical</th></tr></thead><tbody id="trainingRecordsBody"></tbody></table></div>
+            </article>
+          </div>
+
+          <div id="recordsPanelVerification" class="records-panel" data-record-panel="verification">
+            <div id="recordVerificationContent" class="verification-record-grid"></div>
+          </div>
+        </section>
+
+        <section id="page-notifications" class="page">
+          <div class="page-head">
+            <div><div id="notificationEyebrow" class="eyebrow">ACTION CENTER</div><h1 id="notificationTitle">Notifications</h1><p id="notificationDescription" class="muted">Live HACCP alerts from monitoring, verification, calibration, sanitation and training.</p></div>
+            <button id="refreshNotifications" class="secondary" type="button">Refresh</button>
+          </div>
+
+          <div class="stats-grid notification-stats">
+            <article class="stat card"><span id="notificationTotalLabel">Open</span><strong id="notificationTotal">0</strong><small id="notificationTotalSmall">active alerts</small></article>
+            <article class="stat card"><span id="notificationCriticalLabel">Critical</span><strong id="notificationCritical">0</strong><small id="notificationCriticalSmall">act now</small></article>
+            <article class="stat card"><span id="notificationWarningLabel">Warning</span><strong id="notificationWarning">0</strong><small id="notificationWarningSmall">needs attention</small></article>
+            <article class="stat card"><span id="notificationUpdatedLabel">Updated</span><strong id="notificationUpdated">—</strong><small id="notificationUpdatedSmall">auto-refreshes every minute</small></article>
+          </div>
+
+          <article class="card notification-toolbar-card">
+            <div class="notification-filter-row" role="tablist" aria-label="Notification filters">
+              <button type="button" class="notification-filter active" data-notification-filter="all" id="notificationFilterAll">All</button>
+              <button type="button" class="notification-filter" data-notification-filter="critical" id="notificationFilterCritical">Critical</button>
+              <button type="button" class="notification-filter" data-notification-filter="warning" id="notificationFilterWarning">Warning</button>
+              <button type="button" class="notification-filter" data-notification-filter="training" id="notificationFilterTraining">Training</button>
+              <button type="button" class="notification-filter" data-notification-filter="sanitation" id="notificationFilterSanitation">Sanitation</button>
+              <button type="button" class="notification-filter" data-notification-filter="thawing" id="notificationFilterThawing">Thawing</button>
+            </div>
+            <p id="notificationHelp" class="muted">Alerts disappear automatically when the source issue is resolved. Snooze hides an alert only for your account.</p>
+          </article>
+
+          <div id="notificationList" class="notification-list"><div class="card empty">Loading notifications…</div></div>
+        </section>
+
+        <section id="page-management" class="page admin-page">
+          <div class="page-head">
+            <div><div id="managementEyebrow" class="eyebrow">MANAGEMENT REVIEW</div><h1 id="managementTitle">HACCP Management Review</h1><p id="managementDescription" class="muted">Review performance, recurring deviations and outstanding actions across the HACCP system.</p></div>
+            <div class="record-actions"><button id="managementViewBtn" class="secondary" type="button">View Report</button><button id="managementDownloadBtn" class="secondary" type="button">Download PDF</button><button id="managementPrintBtn" class="primary" type="button">Print</button></div>
+          </div>
+
+          <article class="card management-toolbar">
+            <div class="management-period-controls">
+              <label><span id="managementStartLabel">From</span><input id="managementStart" type="date"></label>
+              <label><span id="managementEndLabel">To</span><input id="managementEnd" type="date"></label>
+              <button id="managementLast30" class="secondary" type="button">Last 30 Days</button>
+              <button id="refreshManagement" class="secondary" type="button">Refresh</button>
+            </div>
+            <div id="managementStatus" class="muted">Select a period to review.</div>
+          </article>
+
+          <div class="management-module-grid management-review-grid">
+            <article class="card management-module"><span id="mgStorageLabel">Storage</span><strong id="mgStorageValue">—</strong><small id="mgStorageSmall">checks / deviations</small></article>
+            <article class="card management-module"><span id="mgProcessLabel">Food Process</span><strong id="mgProcessValue">—</strong><small id="mgProcessSmall">readings / deviations</small></article>
+            <article class="card management-module"><span id="mgReceivingLabel">Receiving</span><strong id="mgReceivingValue">—</strong><small id="mgReceivingSmall">deliveries / rejected</small></article>
+            <article class="card management-module"><span id="mgSanitationLabel">Sanitation</span><strong id="mgSanitationValue">—</strong><small id="mgSanitationSmall">checks / failed</small></article>
+            <article class="card management-module"><span id="mgCalibrationLabel">Calibration</span><strong id="mgCalibrationValue">—</strong><small id="mgCalibrationSmall">checks / failed</small></article>
+            <article class="card management-module"><span id="mgTrainingLabel">Training</span><strong id="mgTrainingValue">—</strong><small id="mgTrainingSmall">overdue / incomplete</small></article>
+            <article class="card management-module"><span id="mgAllergenLabel">Allergen</span><strong id="mgAllergenValue">—</strong><small id="mgAllergenSmall">checks / flagged</small></article>
+            <article class="card management-module attention-module"><span id="mgAttentionLabel">Open Attention</span><strong id="mgAttentionValue">—</strong><small id="mgAttentionSmall">current outstanding items</small></article>
+          </div>
+
+          <div class="two-col management-review-main">
+            <article class="card">
+              <div class="section-head"><div><div id="mgTrendEyebrow" class="eyebrow">TREND</div><h2 id="mgTrendTitle">Daily deviations</h2></div></div>
+              <div id="managementTrend" class="management-trend"><div class="empty">No data loaded.</div></div>
+            </article>
+            <article class="card">
+              <div class="section-head"><div><div id="mgOutstandingEyebrow" class="eyebrow">ATTENTION</div><h2 id="mgOutstandingTitle">Outstanding controls</h2></div></div>
+              <div id="managementOutstanding" class="management-attention-list"><div class="empty">No data loaded.</div></div>
+            </article>
+          </div>
+
+          <div class="management-top-grid">
+            <article class="card"><div class="section-head"><div><div class="eyebrow">STORAGE</div><h2 id="mgTopStorageTitle">Recurring temperature deviations</h2></div></div><div id="managementTopStorage" class="management-ranked-list"></div></article>
+            <article class="card"><div class="section-head"><div><div class="eyebrow">SANITATION</div><h2 id="mgTopSanitationTitle">Recurring sanitation failures</h2></div></div><div id="managementTopSanitation" class="management-ranked-list"></div></article>
+            <article class="card"><div class="section-head"><div><div class="eyebrow">RECEIVING</div><h2 id="mgTopReceivingTitle">Supplier rejection activity</h2></div></div><div id="managementTopReceiving" class="management-ranked-list"></div></article>
+          </div>
+
+          <article class="card management-review-form-card">
+            <div class="section-head"><div><div id="mgReviewEyebrow" class="eyebrow">REVIEW RECORD</div><h2 id="mgReviewTitle">Management notes & actions</h2><p id="mgReviewHelp" class="muted">Save a draft while discussing the period, then finalize it to create an immutable management-review record.</p></div><span id="managementReviewBadge" class="status-open">DRAFT</span></div>
+            <input id="managementReviewId" type="hidden">
+            <div class="form-grid two">
+              <label><span id="mgNotesLabel">Management observations</span><textarea id="managementNotes" rows="6" placeholder="Key findings, recurring issues, positive trends, audit observations…"></textarea></label>
+              <label><span id="mgActionsLabel">Management actions / follow-up</span><textarea id="managementActions" rows="6" placeholder="Action, owner, target date, resources or procedure changes…"></textarea></label>
+            </div>
+            <div class="modal-actions management-review-actions"><button id="saveManagementDraft" class="secondary" type="button">Save Draft</button><button id="finalizeManagementReview" class="primary" type="button">Finalize Review</button></div>
+          </article>
+
+          <article class="card">
+            <div class="section-head"><div><div id="mgHistoryEyebrow" class="eyebrow">HISTORY</div><h2 id="mgHistoryTitle">Previous management reviews</h2></div></div>
+            <div id="managementReviewHistory" class="list"><div class="empty">No reviews yet.</div></div>
+          </article>
+        </section>
+
+        <section id="page-process" class="page">
+          <div class="page-head">
+            <div><div class="eyebrow">MONITORING</div><h1>Food Process Control</h1><p class="muted">Track food batches through Cooking, Cooling, Reheating, Hot Holding and Cold Holding.</p></div>
+            <button id="newProcessBatchBtn" class="primary">+ New Food Batch</button>
+          </div>
+          <div class="stats-grid process-stats">
+            <article class="stat card"><span>Active batches</span><strong id="processActiveCount">0</strong><small>in progress</small></article>
+            <article class="stat card"><span>Cooling</span><strong id="processCoolingCount">0</strong><small>active</small></article>
+            <article class="stat card"><span>Holding</span><strong id="processHoldingCount">0</strong><small>active</small></article>
+            <article class="stat card"><span>Attention</span><strong id="processAttentionCount">0</strong><small>overdue / out</small></article>
+          </div>
+          <div class="card monitor-toolbar"><div><strong>Follow the food batch, not only the equipment.</strong><span>Each reading records user and time automatically. Holding allows repeated readings.</span></div><button id="refreshProcess" class="secondary">Refresh</button></div>
+          <div class="process-legend card"><strong>Batch Journey</strong><span>Each batch keeps its full Cooking → Cooling → Reheating → Holding history. Timers follow the active step automatically.</span></div>
+          <div id="processBatchList" class="process-batch-list"></div>
+        </section>
+
+        <section id="page-process-settings" class="page admin-page">
+          <div class="page-head"><div><div class="eyebrow">CONFIGURATION</div><h1>Process Standards</h1><p class="muted">Version-controlled HACCP standards for Cooking, Cooling, Reheating and Holding. Once used in batch history, a standard becomes immutable; future changes create a new version.</p></div></div>
+          <div class="two-col admin-grid">
+            <article class="card">
+              <div class="section-head"><div><div class="eyebrow">PROCESS STANDARD</div><h2 id="processLimitFormTitle">Add process standard</h2></div></div>
+              <form id="processLimitForm" class="stack-form">
+                <input id="processLimitId" type="hidden">
+                <input id="processLimitMode" type="hidden" value="new">
+                <div id="processVersionNotice" class="process-version-notice hidden"><strong>Creating a controlled new version</strong><span>The existing version remains attached to historical and in-progress batches. Code and process type stay fixed for traceability.</span></div>
+                <label>Process<select id="processLimitType"><option value="cooking">Cooking</option><option value="cooling">Cooling</option><option value="reheating">Reheating</option><option value="hot_holding">Hot Holding</option><option value="cold_holding">Cold Holding</option></select></label>
+                <div class="form-grid two"><label>Code<input id="processLimitCode" required placeholder="COOK-01"></label><label>Name<input id="processLimitName" required placeholder="Property Standard"></label></div>
+                <div id="processSimpleLimitFields" class="stack-form">
+                  <div class="form-grid two"><label>Minimum °C<input id="processMinValue" type="number" step="0.1"></label><label>Maximum °C<input id="processMaxValue" type="number" step="0.1"></label></div>
+                  <label id="processTimeLimitLabel">Process time limit (minutes)<input id="processTimeLimitMinutes" type="number" min="1" placeholder="Optional"></label>
+                </div>
+                <div id="processCoolingLimitFields" class="stack-form hidden">
+                  <div class="form-grid two"><label>Stage 1 max °C<input id="processStage1Max" type="number" step="0.1"></label><label>Stage 1 minutes<input id="processStage1Minutes" type="number" min="1"></label></div>
+                  <div class="form-grid two"><label>Final max °C<input id="processFinalMax" type="number" step="0.1"></label><label>Total minutes<input id="processTotalMinutes" type="number" min="1"></label></div>
+                </div>
+                <label id="processIntervalLabel">Holding monitoring interval (minutes)<input id="processIntervalMinutes" type="number" min="1" placeholder="120"></label>
+                <div class="form-grid two">
+                  <label>Warn before due (minutes)<input id="processReminderMinutes" type="number" min="0" value="15"></label>
+                  <label>Overdue grace (minutes)<input id="processOverdueMinutes" type="number" min="0" value="30"></label>
+                </div>
+                <label id="processVersionReasonLabel" class="hidden">Version change reason<textarea id="processVersionReason" rows="2" placeholder="e.g. HACCP plan revision, validated cooking standard update"></textarea></label>
+                <p class="small muted process-settings-help">Warning and overdue timing control operational reminders. Critical food-safety limits remain determined by the temperature/time standard above. Used standards are locked and must be revised by creating a new version.</p>
+                <div class="form-actions"><button id="processLimitCancel" class="secondary hidden" type="button">Cancel</button><button id="processLimitSubmit" class="primary" type="submit">Save Process Standard</button></div>
+              </form>
+            </article>
+            <article class="card"><div class="section-head"><div><div class="eyebrow">VERSION HISTORY</div><h2>Configured standards</h2></div></div><p class="small muted process-standard-history-help">CURRENT versions are available to new batches. RETIRED versions remain visible for audit history and in-progress batches that started under them.</p><div id="processLimitList" class="list"></div></article>
+          </div>
+        </section>
+
+        <section id="page-receiving-settings" class="page admin-page">
+          <div class="page-head"><div><div class="eyebrow">CONFIGURATION</div><h1 data-i18n="receiving.settingsTitle">Receiving Settings</h1><p class="muted" data-i18n="receiving.settingsDescription">Manage approved suppliers and property-approved receiving standards. Historical receiving records keep snapshots of the configuration used at the time.</p></div></div>
+          <div class="two-col admin-grid receiving-settings-grid">
+            <article class="card">
+              <div class="section-head"><div><div class="eyebrow">SUPPLIER CONTROL</div><h2 id="receivingSupplierFormTitle">Add approved supplier</h2></div></div>
+              <form id="receivingSupplierForm" class="stack-form">
+                <input id="receivingSupplierId" type="hidden">
+                <div class="form-grid two"><label>Supplier code<input id="receivingSupplierCode" required placeholder="SUP-001"></label><label>Supplier name<input id="receivingSupplierName" required placeholder="Approved Food Supplier"></label></div>
+                <div class="form-grid two"><label>Approval status<select id="receivingSupplierApproval"><option value="approved">Approved</option><option value="conditional">Conditional</option><option value="suspended">Suspended</option></select></label><label>Approval / audit reference<input id="receivingSupplierReference" placeholder="Optional"></label></div>
+                <label>Product categories<input id="receivingSupplierCategories" placeholder="Meat, seafood, dairy, produce"></label>
+                <div class="form-grid two"><label>Contact person<input id="receivingSupplierContact" placeholder="Optional"></label><label>Phone<input id="receivingSupplierPhone" placeholder="Optional"></label></div>
+                <label>Email<input id="receivingSupplierEmail" type="email" placeholder="Optional"></label>
+                <label>Notes<textarea id="receivingSupplierNotes" rows="2" placeholder="Optional"></textarea></label>
+                <div class="form-actions"><button id="receivingSupplierCancel" class="secondary hidden" type="button">Cancel Edit</button><button id="receivingSupplierSave" class="primary" type="submit">Save Supplier</button></div>
+              </form>
+            </article>
+            <article class="card"><div class="section-head"><div><div class="eyebrow">SUPPLIER REGISTER</div><h2>Suppliers</h2></div><span id="receivingSupplierCount" class="pill">0</span></div><div id="receivingSupplierList" class="settings-list"></div></article>
+          </div>
+          <div class="two-col admin-grid receiving-settings-grid receiving-standard-grid">
+            <article class="card">
+              <div class="section-head"><div><div class="eyebrow">RECEIVING STANDARD</div><h2 id="receivingStandardFormTitle">Add receiving standard</h2></div></div>
+              <form id="receivingStandardForm" class="stack-form">
+                <input id="receivingStandardId" type="hidden">
+                <div class="form-grid two"><label>Code<input id="receivingStandardCode" required placeholder="REC-CHILLED"></label><label>Name<input id="receivingStandardName" required placeholder="Chilled TCS Food"></label></div>
+                <div class="form-grid two"><label>Category<input id="receivingStandardCategory" placeholder="Chilled / Frozen / Dry / Hot"></label><label>Unit<input id="receivingStandardUnit" value="°C" required></label></div>
+                <label class="check-label"><input id="receivingTemperatureRequired" type="checkbox" checked> Temperature measurement required</label>
+                <div id="receivingTemperatureLimitFields" class="form-grid two"><label>Minimum<input id="receivingStandardMin" type="number" step="0.1" placeholder="Leave blank if none"></label><label>Maximum<input id="receivingStandardMax" type="number" step="0.1" placeholder="Leave blank if none"></label></div>
+                <label>Display requirement<input id="receivingStandardLimitText" required placeholder="Use your approved receiving requirement"></label>
+                <div class="form-grid two"><label class="check-label"><input id="receivingRequirePackaging" type="checkbox" checked> Intact packaging required</label><label class="check-label"><input id="receivingRequireVehicle" type="checkbox" checked> Acceptable transport condition required</label></div>
+                <label>Notes<textarea id="receivingStandardNotes" rows="2" placeholder="Approved procedure / special product requirement"></textarea></label>
+                <div class="form-actions"><button id="receivingStandardCancel" class="secondary hidden" type="button">Cancel Edit</button><button id="receivingStandardSave" class="primary" type="submit">Save Receiving Standard</button></div>
+              </form>
+            </article>
+            <article class="card"><div class="section-head"><div><div class="eyebrow">APPROVED REQUIREMENTS</div><h2>Receiving standards</h2></div><span id="receivingStandardCount" class="pill">0</span></div><div id="receivingStandardList" class="settings-list"></div></article>
+          </div>
+        </section>
+
+        <section id="page-equipment" class="page admin-page">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">CONFIGURATION</div>
+              <h1>Equipment</h1>
+              <p class="muted">Manage monitored chillers, freezers and other storage units.</p>
+            </div>
+          </div>
+
+          <div class="two-col admin-grid equipment-primary-grid">
+            <article class="card">
+              <div class="section-head">
+                <div><div class="eyebrow">STORAGE UNIT</div><h2 id="equipmentFormTitle">Add equipment</h2></div>
+              </div>
+              <form id="equipmentForm" class="stack-form">
+                <input id="equipmentId" type="hidden">
+                <label>Equipment name<input id="equipmentName" required placeholder="Walk-in Chiller"></label>
+                <div class="form-grid two">
+                  <label>Equipment code<input id="equipmentCode" required placeholder="CH-01"></label>
+                  <label>Storage type<select id="equipmentStorageType"><option>Cold Storage</option><option>Freezer</option><option>Hot Holding</option><option>Blast Chiller</option><option>Display Chiller</option><option>Receiving</option><option>Other</option></select></label>
+                </div>
+                <label>Location<select id="equipmentLocation" required></select></label>
+
+                <details class="advanced-fields">
+                  <summary>Monitoring settings</summary>
+                  <div class="advanced-fields-body">
+                    <label>Default HACCP limit<select id="equipmentDefaultLimit"><option value="">No default</option></select></label>
+                    <label>Monitoring schedule<input id="equipmentSchedule" placeholder="Opening, 10:00, 14:00, Closing"></label>
+                    <label>Description<input id="equipmentDescription" placeholder="Optional asset or operational note"></label>
+                  </div>
+                </details>
+
+                <div class="form-actions">
+                  <button id="equipmentSaveBtn" class="primary" type="submit">Add Equipment</button>
+                  <button id="equipmentCancelBtn" class="secondary hidden" type="button">Cancel Edit</button>
+                </div>
+              </form>
+            </article>
+
+            <article class="card">
+              <div class="section-head">
+                <div><div class="eyebrow">REGISTER</div><h2>Active equipment</h2></div>
+                <span id="equipmentCount" class="pill">0</span>
+              </div>
+              <div id="equipmentList" class="settings-list"></div>
+            </article>
+          </div>
+
+          <div class="management-panels">
+            <details class="management-panel">
+              <summary>
+                <span><strong>Kitchen locations</strong><small> Add or edit areas such as Main Kitchen, Pastry or Butcher.</small></span>
+                <span id="locationCount" class="pill">0</span>
+              </summary>
+              <div class="management-panel-body two-col compact-grid">
+                <form id="locationForm" class="stack-form compact-form">
+                  <input id="locationId" type="hidden">
+                  <div class="section-head"><h2 id="locationFormTitle">Add location</h2></div>
+                  <label>Location name<input id="locationName" required placeholder="Main Kitchen"></label>
+                  <label>Description<input id="locationDescription" placeholder="Optional"></label>
+                  <div class="form-actions">
+                    <button id="locationSaveBtn" class="primary" type="submit">Add Location</button>
+                    <button id="locationCancelBtn" class="secondary hidden" type="button">Cancel Edit</button>
+                  </div>
+                </form>
+                <div>
+                  <div class="section-head"><h2>Locations</h2></div>
+                  <div id="locationList" class="settings-list"></div>
+                </div>
+              </div>
+            </details>
+
+            <details class="management-panel">
+              <summary><span><strong>Configuration history</strong><small> Review recent equipment, location and HACCP-limit changes.</small></span></summary>
+              <div class="management-panel-body">
+                <div id="auditList" class="settings-list"></div>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <section id="page-limits" class="page admin-page">
+          <div class="page-head"><div><div class="eyebrow">HACCP PLAN</div><h1>Critical Limits</h1><p class="muted">Configure these from your approved HACCP plan. Samples are placeholders only.</p></div></div>
+          <div class="two-col admin-grid">
+            <article class="card">
+              <h2>Add HACCP point</h2>
+              <form id="limitForm" class="stack-form">
+                <div class="form-grid two">
+                  <label>Code<input id="limitCode" required placeholder="CCP-01"></label>
+                  <label>Type<select id="limitType"><option>CCP</option><option>CP</option></select></label>
+                  <label>Process / name<input id="limitName" required placeholder="Cold storage"></label>
+                  <label>Unit<input id="limitUnit" value="°C" required></label>
+                  <label>Minimum<input id="limitMin" type="number" step="0.1" placeholder="Leave blank if none"></label>
+                  <label>Maximum<input id="limitMax" type="number" step="0.1" placeholder="Leave blank if none"></label>
+                </div>
+                <label>Display limit text<input id="limitText" required placeholder="≤ 5°C"></label>
+                <label>Monitoring frequency<input id="limitFrequency" placeholder="Opening, 12:00, 18:00"></label>
+                <label>Default corrective guidance<textarea id="limitGuidance" rows="3" placeholder="Follow your approved HACCP plan..."></textarea></label>
+                <button class="primary" type="submit">Add HACCP Point</button>
+              </form>
+            </article>
+            <article class="card"><div class="section-head"><h2>Configured points</h2><span id="limitCount" class="pill">0</span></div><div id="limitList" class="settings-list"></div></article>
+          </div>
+        </section>
+
+
+        <section id="page-thawing-settings" class="page admin-page">
+          <div class="page-head"><div><div class="eyebrow">CONFIGURATION</div><h1 id="thawingSettingsTitle">Thawing Standards</h1><p id="thawingSettingsDescription" class="muted">Configure property-approved thawing methods and monitoring requirements. Historical batches preserve the standard snapshot used when started.</p></div></div>
+          <div class="two-col admin-grid">
+            <article class="card"><div class="section-head"><div><div class="eyebrow">THAWING STANDARD</div><h2 id="thawingStandardFormTitle">Add thawing standard</h2></div></div>
+              <form id="thawingStandardForm" class="stack-form"><input id="thawingStandardId" type="hidden">
+                <div class="form-grid two"><label>Code<input id="thawingStandardCode" required placeholder="THAW-CHILLED"></label><label>Name<input id="thawingStandardName" required placeholder="Refrigerated Thawing"></label></div>
+                <div class="form-grid two"><label>Method<select id="thawingStandardMethod"><option value="refrigeration">Refrigeration</option><option value="running_water">Running cold water</option><option value="microwave">Microwave → immediate cooking</option><option value="cook_from_frozen">Cook from frozen</option><option value="other">Other approved method</option></select></label><label>Unit<input id="thawingStandardUnit" value="°C" required></label></div>
+                <div class="form-grid three"><label>Maximum temperature<input id="thawingStandardMaxTemp" type="number" step="0.1" placeholder="Property standard"></label><label>Monitoring interval (min)<input id="thawingStandardInterval" type="number" min="15" placeholder="240"></label><label>Maximum duration (min)<input id="thawingStandardDuration" type="number" min="15" placeholder="1440"></label></div>
+                <div class="form-grid two"><label>Warn before due (min)<input id="thawingStandardReminder" type="number" min="0" value="15"></label><label>Overdue grace (min)<input id="thawingStandardGrace" type="number" min="0" value="30"></label></div>
+                <label>Post-thaw instruction<textarea id="thawingStandardInstruction" rows="2" placeholder="Transfer to production / approved chilled storage"></textarea></label>
+                <label class="check-label"><input id="thawingStandardVerify" type="checkbox"> Supervisor verification required</label>
+                <label>Notes<textarea id="thawingStandardNotes" rows="2" placeholder="SOP reference / restrictions"></textarea></label>
+                <div class="form-actions"><button id="thawingStandardCancel" class="secondary hidden" type="button">Cancel Edit</button><button class="primary" type="submit">Save Standard</button></div>
+              </form>
+            </article>
+            <article class="card"><div class="section-head"><div><div class="eyebrow">APPROVED METHODS</div><h2>Thawing standards</h2></div><span id="thawingStandardCount" class="pill">0</span></div><div id="thawingStandardList" class="settings-list"></div></article>
+          </div>
+        </section>
+
+        <section id="page-sanitation-settings" class="page admin-page">
+          <div class="page-head"><div><div class="eyebrow">CONFIGURATION</div><h1>Sanitation Settings</h1><p class="muted">Configure approved SSOP tasks and schedules. Historical sanitation records preserve a snapshot of the standard used at completion.</p></div></div>
+          <div class="two-col admin-grid sanitation-settings-grid">
+            <article class="card">
+              <div class="section-head"><div><div class="eyebrow">SSOP STANDARD</div><h2 id="sanitationStandardFormTitle">Add sanitation standard</h2></div></div>
+              <form id="sanitationStandardForm" class="stack-form"><input id="sanitationStandardId" type="hidden">
+                <div class="form-grid two"><label>Code<input id="sanitationStandardCode" required placeholder="SAN-SLICER-01"></label><label>Task name<input id="sanitationStandardName" required placeholder="Meat Slicer Cleaning"></label></div>
+                <div class="form-grid two"><label>Area / Location<input id="sanitationStandardArea" required placeholder="Butcher Kitchen"></label><label>Equipment<select id="sanitationStandardEquipment"><option value="">No specific equipment</option></select></label></div>
+                <label>Approved method<textarea id="sanitationStandardMethod" required rows="3" placeholder="Disassemble → wash → rinse → sanitize → air dry"></textarea></label>
+                <div class="form-grid two"><label>Chemical / Sanitizer<input id="sanitationStandardChemical" placeholder="Quat Sanitizer"></label><label>Contact time (seconds)<input id="sanitationStandardContact" type="number" min="0" placeholder="60"></label></div>
+                <label class="check-label"><input id="sanitationConcentrationRequired" type="checkbox"> Concentration measurement required</label>
+                <div id="sanitationConcentrationFields" class="form-grid three"><label>Minimum<input id="sanitationConcentrationMin" type="number" step="0.1"></label><label>Maximum<input id="sanitationConcentrationMax" type="number" step="0.1"></label><label>Unit<input id="sanitationConcentrationUnit" placeholder="ppm"></label></div>
+                <div class="form-grid two"><label>Frequency<select id="sanitationFrequency"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="as_needed">As needed</option></select></label><label>Due time<input id="sanitationDueTime" type="time"></label></div>
+                <div id="sanitationScheduleDetail" class="form-grid two"><label>Weekly day<select id="sanitationWeekday"><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option></select></label><label>Monthly day<input id="sanitationMonthday" type="number" min="1" max="31" value="1"></label></div>
+                <div class="form-grid two"><label class="check-label"><input id="sanitationVerificationRequired" type="checkbox" checked> Supervisor verification required</label><label class="check-label"><input id="sanitationPhotoOnFail" type="checkbox" checked> Photo required on FAIL</label></div>
+                <label>Notes<textarea id="sanitationStandardNotes" rows="2" placeholder="Approved SSOP reference / special instructions"></textarea></label>
+                <div class="form-actions"><button id="sanitationStandardCancel" class="secondary hidden" type="button">Cancel Edit</button><button class="primary" type="submit">Save Sanitation Standard</button></div>
+              </form>
+            </article>
+            <article class="card"><div class="section-head"><div><div class="eyebrow">SSOP REGISTER</div><h2>Sanitation standards</h2></div><span id="sanitationStandardCount" class="pill">0</span></div><div id="sanitationStandardList" class="settings-list"></div></article>
+          </div>
+        </section>
+
+        <section id="page-allergen-settings" class="page admin-page">
+          <div class="page-head"><div><div class="eyebrow">CONFIGURATION</div><h1 data-i18n="allergen.settingsTitle">Allergen Settings</h1><p class="muted" data-i18n="allergen.settingsDescription">Maintain the property's allergen library and version-controlled menu allergen profiles.</p></div><button id="refreshAllergenSettings" class="secondary" type="button" data-i18n="common.refresh">Refresh</button></div>
+          <div class="two-col allergen-settings-grid">
+            <article class="card">
+              <div class="section-head"><div><div class="eyebrow" data-i18n="allergen.libraryEyebrow">ALLERGEN LIBRARY</div><h2 data-i18n="allergen.libraryTitle">Property Allergen Library</h2></div><span id="allergenSettingsCount" class="pill">0</span></div>
+              <form id="allergenLibraryForm" class="stack-form"><input id="allergenLibraryId" type="hidden"><div class="form-grid two"><label><span data-i18n="allergen.code">Code</span><input id="allergenLibraryCode" required placeholder="MILK"></label><label><span data-i18n="allergen.sortOrder">Sort order</span><input id="allergenLibrarySort" type="number" step="1" value="100"></label></div><div class="form-grid two"><label><span data-i18n="allergen.nameEn">English name</span><input id="allergenLibraryNameEn" required placeholder="Milk"></label><label><span data-i18n="allergen.nameId">Nama Bahasa Indonesia</span><input id="allergenLibraryNameId" required placeholder="Susu"></label></div><label><span data-i18n="allergen.notes">Notes</span><textarea id="allergenLibraryNotes" rows="2" placeholder="Optional"></textarea></label><div class="form-actions"><button id="allergenLibraryCancel" class="secondary hidden" type="button">Cancel Edit</button><button class="primary" type="submit">Save Allergen</button></div></form>
+              <div id="allergenLibraryList" class="settings-list allergen-library-list"></div>
+            </article>
+            <article class="card allergen-profile-editor-card">
+              <div class="section-head"><div><div class="eyebrow" data-i18n="allergen.profileEyebrow">MENU PROFILE</div><h2 id="allergenProfileEditorTitle" data-i18n="allergen.newProfile">New Menu Allergen Profile</h2></div><button id="newAllergenProfileBtn" class="secondary" type="button">+ New</button></div>
+              <form id="allergenProfileForm" class="stack-form"><input id="allergenProfileId" type="hidden"><div id="allergenProfileVersionInfo" class="verification-strip hidden"></div><div class="form-grid two"><label><span data-i18n="allergen.menuCode">Menu code</span><input id="allergenProfileCode" required placeholder="MENU-001"></label><label><span data-i18n="allergen.menuName">Menu item name</span><input id="allergenProfileName" required placeholder="Chicken Parmigiana"></label><label><span data-i18n="allergen.category">Category</span><input id="allergenProfileCategory" placeholder="Main Course"></label><label><span data-i18n="allergen.outletService">Outlet / service</span><input id="allergenProfileOutlet" placeholder="Restaurant / Banquet"></label></div><label><span data-i18n="allergen.ingredients">Ingredients / composition</span><textarea id="allergenProfileIngredients" rows="3" placeholder="Ingredient summary used for allergen review"></textarea></label><label><span data-i18n="allergen.handlingNotes">Handling / cross-contact notes</span><textarea id="allergenProfileHandling" rows="3" placeholder="Shared fryer, dedicated utensils, cleaning procedure, supplier specification notes..."></textarea></label><label><span data-i18n="allergen.reviewDate">Review due date</span><input id="allergenProfileReviewDue" type="date"></label><div><span class="field-label" data-i18n="allergen.classification">Allergen classification</span><p class="small muted" data-i18n="allergen.classificationHelp">Select Contains, Cross-contact risk, or None for each property allergen.</p><div id="allergenProfileAllergenGrid" class="allergen-profile-grid"></div></div><div class="form-actions"><button id="allergenProfileCancel" class="secondary hidden" type="button">Cancel Edit</button><button class="primary" type="submit">Save Draft</button></div></form>
+            </article>
+          </div>
+          <article class="card allergen-profile-register"><div class="section-head"><div><div class="eyebrow">VERSION CONTROL</div><h2 data-i18n="allergen.profileRegister">Menu Allergen Profiles</h2></div><span id="allergenProfileCount" class="pill">0</span></div><div id="allergenProfileList" class="settings-list"></div></article>
+        </section>
+
+        <section id="page-training-settings" class="page admin-page">
+          <div class="page-head">
+            <div><div class="eyebrow">TRAINING CONFIGURATION</div><h1 id="trainingSettingsTitle">Training, Assessment & Competency</h1><p class="muted" id="trainingSettingsDescription">Create bilingual assessments, publish controlled versions, assign them to staff and record practical competency.</p></div>
+            <button id="newTrainingAssessmentBtn" class="primary" type="button">+ New Assessment</button>
+          </div>
+          <div class="two-col training-settings-grid">
+            <article class="card">
+              <div class="section-head"><div><div class="eyebrow">ASSESSMENTS</div><h2>Assessment Library</h2></div></div>
+              <div id="trainingAssessmentList" class="setting-list"></div>
+            </article>
+            <article class="card">
+              <div class="section-head"><div><div class="eyebrow">QUESTION BANK</div><h2 id="trainingQuestionPanelTitle">Select an assessment</h2></div><button id="addTrainingQuestionBtn" class="secondary hidden" type="button">+ Add Question</button></div>
+              <div id="trainingQuestionList" class="setting-list"><div class="empty">Choose a draft assessment to manage its bilingual questions.</div></div>
+            </article>
+          </div>
+          <article class="card training-assignment-admin-card">
+            <div class="section-head"><div><div class="eyebrow">ASSIGNMENTS & RESULTS</div><h2>Training Matrix</h2></div><button id="refreshTrainingSettings" class="secondary" type="button">Refresh</button></div>
+            <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Assessment</th><th>Knowledge</th><th>Practical</th><th>Overall</th><th>Due</th><th>Action</th></tr></thead><tbody id="trainingMatrixBody"></tbody></table></div>
+          </article>
+        </section>
+
+        <section id="page-team" class="page admin-page">
+          <div class="page-head"><div><div class="eyebrow">ACCESS</div><h1>Kitchen Team</h1><p class="muted">Staff first create an account, then an Owner or Manager adds their email here.</p></div></div>
+          <div class="two-col admin-grid">
+            <article class="card">
+              <h2>Add existing account</h2>
+              <form id="memberForm" class="stack-form">
+                <label>Staff email<input id="memberEmail" type="email" required></label>
+                <label>Role<select id="memberRole"><option value="staff">Staff</option><option value="chef">Chef</option><option value="supervisor">Supervisor</option><option value="manager">Manager</option><option value="admin">Admin</option></select></label>
+                <button class="primary" type="submit">Add to Kitchen</button>
+              </form>
+              <p class="small muted">Owner is protected. Admin can be granted by Owner; Managers can grant Supervisor/Chef/Staff access.</p>
+            </article>
+            <article class="card"><div class="section-head"><h2>Current members</h2><span id="memberCount" class="pill">0</span></div><div id="memberList" class="settings-list"></div></article>
+          </div>
+        </section>
+
+        <section id="page-property" class="page admin-page">
+          <div class="page-head">
+            <div><div class="eyebrow" data-i18n="property.eyebrow">PROPERTY</div><h1 data-i18n="property.title">Hotel / Property Information</h1><p class="muted" data-i18n="property.description">Official property identity used on HACCP PDF records. Equipment, kitchen names and operational data are not translated or changed.</p></div>
+          </div>
+          <div class="two-col admin-grid property-grid">
+            <article class="card">
+              <form id="propertyForm" class="stack-form">
+                <label><span data-i18n="property.name">Hotel / Property name</span><input id="propertyName" placeholder="Fugo Hotel Banjarmasin"></label>
+                <label><span data-i18n="property.address">Address</span><textarea id="propertyAddress" rows="3" placeholder="Jl. A. Yani No.98, ..."></textarea></label>
+                <div class="form-grid two">
+                  <label><span data-i18n="property.phone">Telephone</span><input id="propertyPhone" placeholder="(0511) 4228888"></label>
+                  <label><span data-i18n="property.website">Website</span><input id="propertyWebsite" placeholder="https://fugohotels.com/"></label>
+                </div>
+                <input id="propertyLogoData" type="hidden">
+                <label><span data-i18n="property.logo">Hotel / Property logo</span><input id="propertyLogo" type="file" accept="image/png,image/jpeg,image/webp"></label>
+                <p class="small muted" data-i18n="property.logoHelp">PNG or JPG. A square or horizontal transparent logo works best.</p>
+                <div class="form-actions"><button id="propertySaveBtn" class="primary" type="submit" data-i18n="property.save">Save Property Information</button><button id="removePropertyLogo" class="secondary hidden" type="button" data-i18n="property.removeLogo">Remove Logo</button></div>
+              </form>
+            </article>
+            <article class="card property-preview-card">
+              <div class="section-head"><div><div class="eyebrow">PDF HEADER</div><h2>Preview</h2></div></div>
+              <div id="propertyLogoPreview" class="property-logo-preview"><div class="property-logo-placeholder">LOGO</div><span>No logo uploaded</span></div>
+              <div class="property-preview-note"><strong id="propertyPreviewKitchen">Kitchen / Outlet</strong><p class="muted">Property identity will appear above the HACCP record header. Kitchen / outlet remains the operational workspace name.</p></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="page-qr" class="page admin-page">
+          <div class="page-head">
+            <div><div class="eyebrow">FAST ENTRY</div><h1>Equipment QR Labels</h1><p class="muted">Scanning a label opens Storage Temperature with that equipment pre-selected. Staff still authenticate normally.</p></div>
+            <button id="printQrBtn" class="secondary">Print Labels</button>
+          </div>
+          <div class="section-head qr-section-head"><div><div class="eyebrow">STORAGE MONITORING</div><h2>Equipment QR Labels</h2></div></div>
+          <div id="qrGrid" class="qr-grid"></div>
+          <div class="section-head qr-section-head sanitation-qr-head"><div><div class="eyebrow">CLEANING &amp; SANITATION</div><h2>SSOP QR Labels</h2><p class="small muted">Scan to open the approved sanitation task directly.</p></div></div>
+          <div id="sanitationQrGrid" class="qr-grid"></div>
+          <div class="section-head qr-section-head"><div><div class="eyebrow">THAWING / DEFROST</div><h2>Thawing Standard QR Labels</h2><p class="small muted">Scan to start a thawing batch using the selected approved standard.</p></div></div>
+          <div id="thawingQrGrid" class="qr-grid"></div>
+        </section>
+      </div>
+    </main>
+
+    <nav class="mobile-nav">
+      <button data-page="dashboard" class="active">Dashboard</button>
+      <button data-page="check">Storage</button>
+      <button data-page="process">Process</button>
+      <button data-page="corrective">Actions</button>
+      <button data-page="records">Records</button>
+    </nav>
+  </div>
+
+
+  <dialog id="receivingCheckDialog" class="modal">
+    <form id="receivingCheckForm" method="dialog">
+      <div class="modal-head"><div><div class="eyebrow" data-i18n="receiving.eyebrow">INCOMING FOOD CONTROL</div><h2 data-i18n="receiving.newCheck">Receiving Check</h2></div><button id="closeReceivingCheck" class="icon-btn" type="button">×</button></div>
+      <div class="form-grid two">
+        <label>Supplier<select id="receivingCheckSupplier" required></select></label>
+        <label>Date & time<input id="receivingCheckAt" type="datetime-local" required></label>
+        <label>Delivery / Invoice reference<input id="receivingDeliveryRef" placeholder="DO / invoice / PO reference"></label>
+        <label>Receiving standard<select id="receivingCheckStandard" required></select></label>
+        <label>Product / ingredient<input id="receivingProductName" required placeholder="Chicken breast"></label>
+        <label>Batch / Lot<input id="receivingBatchLot" placeholder="Supplier lot / batch"></label>
+        <label>Quantity<input id="receivingQuantity" placeholder="20"></label>
+        <label>Unit<input id="receivingQuantityUnit" placeholder="kg / carton / pcs"></label>
+        <label>Expiry / Use-by date<input id="receivingExpiryDate" type="date"></label>
+        <label id="receivingTemperatureLabel">Receiving temperature °C<input id="receivingObservedTemperature" type="number" step="0.1" inputmode="decimal"></label>
+        <label>Packaging condition<select id="receivingPackagingCondition"><option value="acceptable">Acceptable / intact</option><option value="damaged">Damaged</option><option value="compromised">Compromised / leaking / open</option><option value="not_applicable">Not applicable</option></select></label>
+        <label>Transport / vehicle condition<select id="receivingVehicleCondition"><option value="acceptable">Acceptable</option><option value="unacceptable">Unacceptable</option><option value="not_checked">Not checked / N/A</option></select></label>
+      </div>
+      <div id="receivingResultPreview" class="result-preview neutral">Select supplier and receiving standard.</div>
+      <div id="receivingFailFields" class="stack-form hidden"><label>Corrective / rejection action<textarea id="receivingCorrectiveAction" rows="2" placeholder="Reject delivery, return to supplier, segregate and notify purchasing..."></textarea></label></div>
+      <section class="receiving-photo-field">
+        <div class="receiving-photo-head"><div><span class="field-label">Photo Evidence</span><small>Up to 5 photos. Required when the delivery is rejected.</small></div><span id="receivingPhotoCount" class="pill">0/5</span></div>
+        <label class="receiving-photo-picker">📷 Add / Take Photos<input id="receivingPhotoInput" type="file" accept="image/*" capture="environment" multiple></label>
+        <div id="receivingPhotoPreview" class="receiving-photo-preview"><div class="receiving-photo-empty">No photo evidence selected.</div></div>
+      </section>
+      <label>Notes<textarea id="receivingCheckNotes" rows="2" placeholder="Optional receiving observation"></textarea></label>
+      <div class="modal-actions"><button id="cancelReceivingCheck" class="secondary" type="button" data-i18n="common.cancel">Cancel</button><button class="primary" type="submit">Save Receiving Record</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="receivingEvidenceDialog" class="modal wide-modal">
+    <div class="modal-head"><div><div class="eyebrow">RECEIVING EVIDENCE</div><h2 id="receivingEvidenceTitle">Photo Evidence</h2></div><button id="closeReceivingEvidence" class="icon-btn" type="button">×</button></div>
+    <div id="receivingEvidenceGrid" class="receiving-evidence-grid"></div>
+  </dialog>
+
+  <dialog id="receivingVerifyDialog" class="modal small-modal">
+    <form id="receivingVerifyForm" method="dialog">
+      <input id="receivingVerifyRecordId" type="hidden">
+      <div class="modal-head"><div><div class="eyebrow">VERIFICATION</div><h2>Verify Receiving Rejection</h2></div><button id="closeReceivingVerify" class="icon-btn" type="button">×</button></div>
+      <div id="receivingVerifySummary" class="verification-strip"></div>
+      <label>Verification notes<textarea id="receivingVerifyNotes" rows="3" required placeholder="Confirm rejection reason, disposition and supplier follow-up."></textarea></label>
+      <div class="modal-actions"><button id="cancelReceivingVerify" class="secondary" type="button" data-i18n="common.cancel">Cancel</button><button class="primary" type="submit">Verify Rejection</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="calibrationDeviceDialog" class="modal small-modal">
+    <form id="calibrationDeviceForm" method="dialog">
+      <input id="calibrationDeviceId" type="hidden">
+      <div class="modal-head"><div><div class="eyebrow" data-i18n="calibration.deviceRegister">DEVICE REGISTER</div><h2 id="calibrationDeviceDialogTitle">Add Thermometer</h2></div><button id="closeCalibrationDevice" class="icon-btn" type="button">×</button></div>
+      <div class="stack-form">
+        <div class="form-grid two"><label>Device code<input id="calibrationDeviceCode" required placeholder="TH-01"></label><label>Device name<input id="calibrationDeviceName" required placeholder="Digital Probe Thermometer"></label></div>
+        <div class="form-grid two"><label>Type<select id="calibrationDeviceType"><option>Digital Probe</option><option>Infrared</option><option>Data Logger</option><option>Dial Thermometer</option><option>Reference Thermometer</option><option>Other</option></select></label><label>Location<select id="calibrationDeviceLocation"><option value="">No fixed location</option></select></label></div>
+        <div class="form-grid two"><label>Allowed tolerance ±°C<input id="calibrationDeviceTolerance" type="number" min="0" step="0.1" value="0.5" required></label><label>Calibration interval (days)<input id="calibrationDeviceInterval" type="number" min="1" step="1" value="30" required></label></div>
+        <div class="form-grid two"><label>Manufacturer<input id="calibrationDeviceManufacturer" placeholder="Optional"></label><label>Model<input id="calibrationDeviceModel" placeholder="Optional"></label></div>
+        <label>Serial number<input id="calibrationDeviceSerial" placeholder="Optional"></label>
+        <label>Notes<textarea id="calibrationDeviceNotes" rows="2" placeholder="Optional"></textarea></label>
+      </div>
+      <div class="modal-actions"><button id="cancelCalibrationDevice" class="secondary" type="button" data-i18n="common.cancel">Cancel</button><button id="saveCalibrationDevice" class="primary" type="submit">Save Thermometer</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="calibrationCheckDialog" class="modal">
+    <form id="calibrationCheckForm" method="dialog">
+      <div class="modal-head"><div><div class="eyebrow" data-i18n="calibration.eyebrow">VERIFICATION CONTROL</div><h2 data-i18n="calibration.newCheck">Calibration Check</h2></div><button id="closeCalibrationCheck" class="icon-btn" type="button">×</button></div>
+      <div class="form-grid two">
+        <label>Thermometer / device<select id="calibrationCheckDevice" required></select></label>
+        <label>Date & time<input id="calibrationCheckAt" type="datetime-local" required></label>
+        <label>Method<select id="calibrationCheckMethod"><option value="ice_point">Ice-point check</option><option value="boiling_point">Boiling-point check</option><option value="comparison">Comparison / reference device</option><option value="external_certificate">External certificate</option><option value="other">Other approved method</option></select></label>
+        <label>Reference source / standard<input id="calibrationReferenceSource" required placeholder="Ice-water slurry / reference thermometer / certificate"></label>
+        <label>Reference temperature °C<input id="calibrationReferenceTemp" type="number" step="0.1" required></label>
+        <label>Observed device temperature °C<input id="calibrationObservedTemp" type="number" step="0.1" required></label>
+        <label>Allowed tolerance ±°C<input id="calibrationCheckTolerance" type="number" step="0.1" readonly></label>
+        <label>Certificate / reference no.<input id="calibrationCertificateRef" placeholder="Optional"></label>
+      </div>
+      <div id="calibrationResultPreview" class="result-preview neutral">Enter reference and observed temperatures.</div>
+      <div id="calibrationFailFields" class="stack-form hidden"><label>Corrective action<textarea id="calibrationCorrectiveAction" rows="2" placeholder="Remove from service, adjust and recheck, replace, send for service..."></textarea></label></div>
+      <label>Notes<textarea id="calibrationCheckNotes" rows="2" placeholder="Optional"></textarea></label>
+      <div class="modal-actions"><button id="cancelCalibrationCheck" class="secondary" type="button" data-i18n="common.cancel">Cancel</button><button class="primary" type="submit">Save Calibration Record</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="calibrationVerifyDialog" class="modal small-modal">
+    <form id="calibrationVerifyForm" method="dialog">
+      <input id="calibrationVerifyRecordId" type="hidden">
+      <div class="modal-head"><div><div class="eyebrow">VERIFICATION</div><h2>Verify Calibration Record</h2></div><button id="closeCalibrationVerify" class="icon-btn" type="button">×</button></div>
+      <div id="calibrationVerifySummary" class="verification-strip"></div>
+      <label>Verification notes<textarea id="calibrationVerifyNotes" rows="3" required placeholder="Review method, reference, result and any corrective action."></textarea></label>
+      <div class="modal-actions"><button id="cancelCalibrationVerify" class="secondary" type="button" data-i18n="common.cancel">Cancel</button><button class="primary" type="submit">Verify Calibration</button></div>
+    </form>
+  </dialog>
+
+
+  <dialog id="trainingAssessmentDialog" class="modal small-modal">
+    <form id="trainingAssessmentForm">
+      <input id="trainingAssessmentId" type="hidden">
+      <div class="modal-head"><div><div class="eyebrow">ASSESSMENT</div><h2 id="trainingAssessmentDialogTitle">New Assessment</h2></div><button id="closeTrainingAssessment" class="icon-btn" type="button">×</button></div>
+      <div class="stack-form">
+        <div class="form-grid two"><label>Code<input id="trainingAssessmentCode" required placeholder="TRN-REC"></label><label>Version<input id="trainingAssessmentVersion" type="number" min="1" value="1" required></label></div>
+        <label>Title — English<input id="trainingAssessmentTitleEn" required></label>
+        <label>Judul — Bahasa Indonesia<input id="trainingAssessmentTitleId" required></label>
+        <label>Description — English<textarea id="trainingAssessmentDescEn" rows="2"></textarea></label>
+        <label>Deskripsi — Bahasa Indonesia<textarea id="trainingAssessmentDescId" rows="2"></textarea></label>
+        <div class="form-grid two"><label>Pass mark %<input id="trainingAssessmentPass" type="number" min="0" max="100" value="80" required></label><label>Maximum attempts<input id="trainingAssessmentAttempts" type="number" min="1" max="20" value="3" required></label></div>
+        <div class="form-grid two"><label>Time limit (minutes)<input id="trainingAssessmentTime" type="number" min="1" max="240" placeholder="Optional"></label><label>Validity (months)<input id="trainingAssessmentValidity" type="number" min="1" max="120" placeholder="Optional"></label></div>
+        <label class="check-label"><input id="trainingAssessmentPractical" type="checkbox"> Practical competency assessment required after knowledge PASS</label>
+      </div>
+      <div class="modal-actions"><button id="cancelTrainingAssessment" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save Draft</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="trainingQuestionDialog" class="modal">
+    <form id="trainingQuestionForm">
+      <input id="trainingQuestionId" type="hidden"><input id="trainingQuestionAssessmentId" type="hidden">
+      <div class="modal-head"><div><div class="eyebrow">BILINGUAL QUESTION</div><h2>Assessment Question</h2></div><button id="closeTrainingQuestion" class="icon-btn" type="button">×</button></div>
+      <div class="stack-form">
+        <div class="form-grid two"><label>Sequence<input id="trainingQuestionSequence" type="number" min="1" value="1" required></label><label>Type<select id="trainingQuestionType"><option value="mcq">Multiple Choice</option><option value="scenario">Scenario Based</option><option value="true_false">True / False</option></select></label></div>
+        <label>Question — English<textarea id="trainingQuestionPromptEn" rows="3" required></textarea></label>
+        <label>Pertanyaan — Bahasa Indonesia<textarea id="trainingQuestionPromptId" rows="3" required></textarea></label>
+        <div class="training-answer-editor">
+          <div class="training-answer-editor-head">
+            <strong>Answer Options</strong>
+            <small>Enter both approved language versions. Select one shared correct answer.</small>
+          </div>
+          <div class="training-answer-edit-card">
+            <label class="training-correct-choice"><input type="radio" name="trainingCorrect" value="A" required><span>A · Correct answer</span></label>
+            <div class="form-grid two">
+              <label>Answer A — English<input id="trainingOptionAEn" required placeholder="English answer"></label>
+              <label>Jawaban A — Bahasa Indonesia<input id="trainingOptionAId" required placeholder="Jawaban Bahasa Indonesia"></label>
+            </div>
+          </div>
+          <div class="training-answer-edit-card">
+            <label class="training-correct-choice"><input type="radio" name="trainingCorrect" value="B"><span>B · Correct answer</span></label>
+            <div class="form-grid two">
+              <label>Answer B — English<input id="trainingOptionBEn" required placeholder="English answer"></label>
+              <label>Jawaban B — Bahasa Indonesia<input id="trainingOptionBId" required placeholder="Jawaban Bahasa Indonesia"></label>
+            </div>
+          </div>
+          <div class="training-answer-edit-card">
+            <label class="training-correct-choice"><input type="radio" name="trainingCorrect" value="C"><span>C · Correct answer</span></label>
+            <div class="form-grid two">
+              <label>Answer C — English<input id="trainingOptionCEn" required placeholder="English answer"></label>
+              <label>Jawaban C — Bahasa Indonesia<input id="trainingOptionCId" required placeholder="Jawaban Bahasa Indonesia"></label>
+            </div>
+          </div>
+          <div class="training-answer-edit-card">
+            <label class="training-correct-choice"><input type="radio" name="trainingCorrect" value="D"><span>D · Correct answer</span></label>
+            <div class="form-grid two">
+              <label>Answer D — English<input id="trainingOptionDEn" required placeholder="English answer"></label>
+              <label>Jawaban D — Bahasa Indonesia<input id="trainingOptionDId" required placeholder="Jawaban Bahasa Indonesia"></label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions"><button id="cancelTrainingQuestion" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save Question</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="trainingAssignDialog" class="modal small-modal">
+    <form id="trainingAssignForm"><input id="trainingAssignAssessmentId" type="hidden">
+      <div class="modal-head"><div><div class="eyebrow">ASSIGN TRAINING</div><h2 id="trainingAssignTitle">Assign Assessment</h2></div><button id="closeTrainingAssign" class="icon-btn" type="button">×</button></div>
+      <div class="stack-form"><label>Team member<select id="trainingAssignUser" required></select></label><label>Due date<input id="trainingAssignDue" type="date"></label></div>
+      <div class="modal-actions"><button id="cancelTrainingAssign" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Assign</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="trainingCompetencyDialog" class="modal small-modal">
+    <form id="trainingCompetencyForm"><input id="trainingCompetencyAssignmentId" type="hidden">
+      <div class="modal-head"><div><div class="eyebrow">PRACTICAL COMPETENCY</div><h2 id="trainingCompetencyTitle">Competency Assessment</h2></div><button id="closeTrainingCompetency" class="icon-btn" type="button">×</button></div>
+      <p class="muted">Confirm practical performance after the employee has passed the knowledge assessment.</p>
+      <div class="stack-form training-criteria-list">
+        <label class="check-label"><input type="checkbox" data-training-criterion value="Follows approved procedure"> Follows approved procedure</label>
+        <label class="check-label"><input type="checkbox" data-training-criterion value="Uses equipment correctly"> Uses equipment correctly</label>
+        <label class="check-label"><input type="checkbox" data-training-criterion value="Records information correctly"> Records information correctly</label>
+        <label class="check-label"><input type="checkbox" data-training-criterion value="Recognises deviation correctly"> Recognises deviation correctly</label>
+        <label class="check-label"><input type="checkbox" data-training-criterion value="Escalates corrective action correctly"> Escalates corrective action correctly</label>
+        <label>Result<select id="trainingCompetencyResult"><option value="COMPETENT">COMPETENT</option><option value="NOT_COMPETENT">NOT COMPETENT</option></select></label>
+        <label>Notes<textarea id="trainingCompetencyNotes" rows="3"></textarea></label>
+      </div>
+      <div class="modal-actions"><button id="cancelTrainingCompetency" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save Competency</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="trainingExamDialog" class="training-exam-dialog">
+    <div class="training-exam-shell">
+      <div class="training-exam-head"><div><div class="eyebrow" id="trainingExamEyebrow">ONLINE ASSESSMENT</div><h2 id="trainingExamTitle">Assessment</h2></div><div class="training-exam-meta"><span id="trainingExamProgress">1 / 10</span><strong id="trainingExamTimer"></strong></div></div>
+      <div id="trainingExamQuestion" class="training-exam-question"></div>
+      <div class="training-exam-actions"><button id="trainingExamPrevious" class="secondary" type="button">Previous</button><button id="trainingExamExit" class="secondary" type="button">Exit</button><button id="trainingExamNext" class="primary" type="button">Next</button><button id="trainingExamSubmit" class="primary hidden" type="button">Submit Assessment</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="thawingBatchDialog" class="modal small-modal"><form id="thawingBatchForm"><div class="modal-head"><div><div class="eyebrow">START THAWING</div><h2>New Thawing Batch</h2></div><button id="closeThawingBatch" class="icon-btn" type="button">×</button></div><div class="stack-form">
+    <label>Approved standard<select id="thawingBatchStandard" required></select></label><div class="form-grid two"><label>Product<input id="thawingBatchProduct" required placeholder="Frozen Chicken Breast"></label><label>Batch / Lot<input id="thawingBatchRef" placeholder="Optional"></label></div><div class="form-grid two"><label>Quantity<input id="thawingBatchQty" type="number" step="0.01"></label><label>Unit<input id="thawingBatchQtyUnit" placeholder="kg"></label></div><label>Intended use<input id="thawingBatchUse" placeholder="Breakfast buffet / Banquet / Prep"></label><div class="form-grid two"><label>Source freezer<select id="thawingSourceEquipment"><option value="">Not specified</option></select></label><label>Thawing equipment<select id="thawingTargetEquipment"><option value="">Not specified</option></select></label></div><label>Thaw location<input id="thawingLocation" placeholder="Walk-in Chiller / Prep Area"></label><div class="form-grid two"><label>Started at<input id="thawingStartedAt" type="datetime-local" required></label><label>Expected completion<input id="thawingExpectedAt" type="datetime-local"></label></div><div id="thawingBatchStandardPreview" class="verification-strip"></div></div><div class="modal-actions"><button id="cancelThawingBatch" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Start Thawing</button></div></form></dialog>
+
+  <dialog id="thawingReadingDialog" class="modal small-modal"><form id="thawingReadingForm"><input id="thawingReadingBatchId" type="hidden"><div class="modal-head"><div><div class="eyebrow">THAWING CHECK</div><h2 id="thawingReadingTitle">Record Temperature</h2></div><button id="closeThawingReading" class="icon-btn" type="button">×</button></div><div class="stack-form"><div id="thawingReadingContext" class="verification-strip"></div><label>Temperature °C<input id="thawingReadingTemp" type="number" step="0.1" required></label><label>Notes<textarea id="thawingReadingNotes" rows="2" placeholder="Optional"></textarea></label><div class="section-head"><div><strong>Photo Evidence</strong><div class="small muted">Optional. Product, temperature display, label, condition or corrective evidence.</div></div><label class="secondary file-button">+ Add Photo<input id="thawingPhotoInput" type="file" accept="image/*" capture="environment" multiple hidden></label></div><div id="thawingPhotoPreview" class="receiving-photo-preview"></div><div id="thawingReadingPreview" class="monitor-result neutral">Enter temperature</div></div><div class="modal-actions"><button id="cancelThawingReading" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save Reading</button></div></form></dialog>
+
+  <dialog id="thawingActionDialog" class="modal small-modal"><form id="thawingActionForm"><input id="thawingActionReadingId" type="hidden"><div class="modal-head"><div><div class="eyebrow">CORRECTIVE ACTION</div><h2>Thawing Deviation</h2></div><button id="closeThawingAction" class="icon-btn" type="button">×</button></div><div class="stack-form"><div id="thawingActionContext" class="verification-strip"></div><label>Immediate action<textarea id="thawingActionImmediate" rows="2" required></textarea></label><label>Product disposition<input id="thawingActionDisposition" placeholder="Hold / discard / move / cook immediately"></label><label>Follow-up temperature °C<input id="thawingActionFollowup" type="number" step="0.1"></label><label>Notes<textarea id="thawingActionNotes" rows="2"></textarea></label></div><div class="modal-actions"><button id="cancelThawingAction" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save Corrective Action</button></div></form></dialog>
+
+  <dialog id="thawingVerifyDialog" class="modal small-modal"><form id="thawingVerifyForm"><input id="thawingVerifyActionId" type="hidden"><div class="modal-head"><div><div class="eyebrow">SUPERVISOR VERIFICATION</div><h2>Verify Thawing Action</h2></div><button id="closeThawingVerify" class="icon-btn" type="button">×</button></div><label>Verification notes<textarea id="thawingVerifyNotes" rows="3" required></textarea></label><div class="modal-actions"><button id="cancelThawingVerify" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Verify Action</button></div></form></dialog>
+
+  <dialog id="thawingEvidenceDialog" class="modal"><div class="modal-head"><div><div class="eyebrow">THAWING EVIDENCE</div><h2 id="thawingEvidenceTitle">Photo Evidence</h2></div><button id="closeThawingEvidence" class="icon-btn" type="button">×</button></div><div id="thawingEvidenceGrid" class="receiving-evidence-grid"></div></dialog>
+
+  <dialog id="thawingBatchVerifyDialog" class="modal small-modal"><form id="thawingBatchVerifyForm"><input id="thawingBatchVerifyId" type="hidden"><div class="modal-head"><div><div class="eyebrow">SUPERVISOR VERIFICATION</div><h2>Verify Completed Thawing Batch</h2></div><button id="closeThawingBatchVerify" class="icon-btn" type="button">×</button></div><label>Verification notes<textarea id="thawingBatchVerifyNotes" rows="3" required placeholder="Final product condition / transfer verification"></textarea></label><div class="modal-actions"><button id="cancelThawingBatchVerify" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Verify Batch</button></div></form></dialog>
+
+  <dialog id="thawingCompleteDialog" class="modal small-modal"><form id="thawingCompleteForm"><input id="thawingCompleteBatchId" type="hidden"><div class="modal-head"><div><div class="eyebrow">CLOSE THAWING BATCH</div><h2>Complete / Disposition</h2></div><button id="closeThawingComplete" class="icon-btn" type="button">×</button></div><div class="stack-form"><label>Status<select id="thawingCompleteStatus"><option value="ready">READY FOR USE</option><option value="hold">HOLD</option><option value="discarded">DISCARDED</option><option value="cancelled">CANCELLED</option></select></label><label>Completion notes<textarea id="thawingCompleteNotes" rows="3" placeholder="Post-thaw transfer / disposition / production note"></textarea></label></div><div class="modal-actions"><button id="cancelThawingComplete" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save Status</button></div></form></dialog>
+
+  <dialog id="sanitationRecordDialog" class="modal small-modal">
+    <form id="sanitationRecordForm"><input id="sanitationRecordStandardId" type="hidden">
+      <div class="modal-head"><div><div class="eyebrow">SANITATION CHECK</div><h2 id="sanitationRecordTitle">Complete Cleaning Task</h2></div><button id="closeSanitationRecord" class="icon-btn" type="button">×</button></div>
+      <div id="sanitationRecordRequirement" class="verification-strip"></div>
+      <div class="stack-form"><label>Sanitation task<select id="sanitationRecordStandard" required></select></label><label>Visual condition<select id="sanitationVisualCondition"><option value="acceptable">Acceptable / clean</option><option value="unacceptable">Unacceptable / residue found</option></select></label><div id="sanitationMeasuredConcentrationWrap"><label>Measured concentration<input id="sanitationMeasuredConcentration" type="number" step="0.1" inputmode="decimal"></label></div><label>Notes<textarea id="sanitationRecordNotes" rows="2" placeholder="Optional"></textarea></label><label id="sanitationCorrectiveWrap" class="hidden">Corrective action<textarea id="sanitationCorrectiveAction" rows="3" placeholder="Re-cleaned, re-sanitized, equipment held out of use, etc."></textarea></label>
+        <div><div class="section-head"><div><strong>Photo Evidence</strong><div class="small muted">Up to 4 photos. At least one is required when a failed standard requires photo evidence.</div></div><label class="secondary file-button">+ Add Photo<input id="sanitationPhotoInput" type="file" accept="image/*" capture="environment" multiple hidden></label></div><div id="sanitationPhotoPreview" class="receiving-photo-preview"></div></div>
+      </div>
+      <div class="modal-actions"><button id="cancelSanitationRecord" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save Sanitation Check</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="sanitationVerifyDialog" class="modal small-modal"><form id="sanitationVerifyForm"><input id="sanitationVerifyRecordId" type="hidden"><div class="modal-head"><div><div class="eyebrow">SUPERVISOR VERIFICATION</div><h2>Verify Sanitation Record</h2></div><button id="closeSanitationVerify" class="icon-btn" type="button">×</button></div><div class="stack-form"><label>Verification result<select id="sanitationVerifyResult"><option value="VERIFIED">VERIFIED / acceptable</option><option value="RECHECK_REQUIRED">RECHECK REQUIRED</option></select></label><label>Verification notes<textarea id="sanitationVerifyNotes" rows="3" required placeholder="Visual verification / re-clean confirmation"></textarea></label><div class="sanitation-verify-photo-field"><div class="section-head"><div><strong>Verification Photo</strong><div class="small muted">Optional for VERIFIED. At least one photo is required when RECHECK REQUIRED is selected.</div></div><label class="secondary file-button">+ Add Photo<input id="sanitationVerifyPhotoInput" type="file" accept="image/*" capture="environment" multiple hidden></label></div><div id="sanitationVerifyPhotoPreview" class="receiving-photo-preview"></div></div></div><div class="modal-actions"><button id="cancelSanitationVerify" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save Verification</button></div></form></dialog>
+
+  <dialog id="sanitationEvidenceDialog" class="modal"><div class="modal-head"><div><div class="eyebrow">SANITATION EVIDENCE</div><h2 id="sanitationEvidenceTitle">Photo Evidence</h2></div><button id="closeSanitationEvidence" class="icon-btn" type="button">×</button></div><div id="sanitationEvidenceGrid" class="receiving-evidence-grid"></div></dialog>
+
+  <dialog id="profileDialog" class="modal small-modal profile-dialog">
+    <form method="dialog">
+      <div class="modal-head">
+        <div><div class="eyebrow" data-i18n="profile.eyebrow">ACCOUNT</div><h2 data-i18n="profile.title">My Profile</h2></div>
+        <button class="icon-btn" type="submit" aria-label="Close">×</button>
+      </div>
+      <p class="muted profile-description" data-i18n="profile.description">Your account identity used for HACCP records. These details are read-only to protect audit consistency.</p>
+      <div class="stack-form profile-readonly-grid">
+        <label><span data-i18n="profile.name">Name</span><input id="profileName" type="text" readonly></label>
+        <label><span data-i18n="profile.email">Email</span><input id="profileEmail" type="email" readonly></label>
+        <div class="form-grid two">
+          <label><span data-i18n="profile.role">Role</span><input id="profileRole" type="text" readonly></label>
+          <label><span data-i18n="profile.kitchen">Kitchen / Outlet</span><input id="profileKitchen" type="text" readonly></label>
+        </div>
+      </div>
+      <div class="profile-readonly-note" data-i18n="profile.readonly">Account details cannot be edited here. This helps preserve user attribution on HACCP monitoring, corrective actions and verification records.</div>
+      <div class="modal-actions"><button class="primary" type="submit" data-i18n="common.close">Close</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="recordPreviewDialog" class="modal record-preview-dialog">
+    <div class="record-preview-shell">
+      <div class="modal-head record-preview-head">
+        <div><div class="eyebrow" data-i18n="records.eyebrow">RECORDKEEPING</div><h2 id="recordPreviewTitle" data-i18n="records.previewTitle">Record Preview</h2></div>
+        <button id="closeRecordPreview" class="icon-btn" type="button" aria-label="Close">×</button>
+      </div>
+      <iframe id="recordPreviewFrame" class="record-preview-frame" title="HACCP record preview"></iframe>
+    </div>
+  </dialog>
+
+  <dialog id="processBatchDialog" class="modal small-modal">
+    <form id="processBatchForm" method="dialog">
+      <div class="modal-head"><div><div class="eyebrow">NEW BATCH</div><h2>Start Food Process</h2></div><button id="closeProcessBatch" class="icon-btn" type="button">×</button></div>
+      <div class="stack-form">
+        <label>Food / Dish Name<input id="processProductName" required placeholder="Beef Rendang"></label>
+        <div class="form-grid two"><label>Batch / Reference<input id="processBatchRef" placeholder="BR-1309-01"></label><label>Quantity<input id="processQuantity" placeholder="20 portions"></label></div>
+        <label>Starting process<select id="processStartType"><option value="cooking">Cooking</option><option value="cooling">Cooling</option><option value="reheating">Reheating</option><option value="hot_holding">Hot Holding</option><option value="cold_holding">Cold Holding</option></select></label>
+        <label>Approved HACCP limit<select id="processStartLimit" required></select></label>
+        <div class="form-grid two"><label>Location<select id="processLocation"><option value="">No location</option></select></label><label>Holding equipment<select id="processEquipment"><option value="">No equipment</option></select></label></div>
+      </div>
+      <div class="form-actions"><button id="cancelProcessBatch" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Start Batch</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="processReadingDialog" class="modal small-modal">
+    <form id="processReadingForm" method="dialog">
+      <input id="processReadingBatchId" type="hidden">
+      <div class="modal-head"><div><div class="eyebrow">TEMPERATURE</div><h2 id="processReadingTitle">Record Temperature</h2></div><button id="closeProcessReading" class="icon-btn" type="button">×</button></div>
+      <div id="processReadingLimit" class="verification-strip"></div>
+      <div class="stack-form"><label>Core / Food Temperature °C<input id="processReadingTemp" type="number" step="0.1" inputmode="decimal" required></label><label>Notes<input id="processReadingNotes" placeholder="Optional"></label></div>
+      <div class="form-actions"><button id="cancelProcessReading" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save Temperature</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="processAdvanceDialog" class="modal small-modal">
+    <form id="processAdvanceForm" method="dialog"><input id="processAdvanceBatchId" type="hidden">
+      <div class="modal-head"><div><div class="eyebrow">NEXT STEP</div><h2>Move Food Batch</h2></div><button id="closeProcessAdvance" class="icon-btn" type="button">×</button></div>
+      <label>Next process<select id="processNextType"><option value="cooling">Cooling</option><option value="reheating">Reheating</option><option value="hot_holding">Hot Holding</option><option value="cold_holding">Cold Holding</option><option value="completed">Complete / Service</option></select></label>
+      <label>Approved HACCP limit<select id="processNextLimit"></select></label>
+      <div class="form-actions"><button id="cancelProcessAdvance" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Continue</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="processActionDialog" class="modal small-modal">
+    <form id="processActionForm" method="dialog">
+      <input id="processActionReadingId" type="hidden">
+      <div class="modal-head"><div><div class="eyebrow">PROCESS DEVIATION</div><h2>Corrective Action</h2></div><button id="closeProcessAction" class="icon-btn" type="button">×</button></div>
+      <div class="stack-form">
+        <label>Immediate action<textarea id="processActionImmediate" required placeholder="Continue cooking, discard, move to rapid cooling, etc."></textarea></label>
+        <label>Product disposition<input id="processActionDisposition" placeholder="Returned to heat / discarded / other"></label>
+        <label>Follow-up temperature °C<input id="processActionFollowup" type="number" step="0.1" inputmode="decimal"></label>
+        <label>Notes<textarea id="processActionNotes" placeholder="Optional"></textarea></label>
+      </div>
+      <div class="form-actions"><button id="cancelProcessAction" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Save Corrective Action</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="correctiveDialog" class="modal">
+    <form id="correctiveForm">
+      <div class="modal-head"><div><div class="eyebrow">CORRECTIVE ACTION</div><h2 id="correctiveTitle">Deviation</h2></div><button type="button" id="closeCorrective" class="icon-btn">×</button></div>
+      <input id="correctiveLogId" type="hidden">
+      <div id="correctiveSummary" class="deviation-summary"></div>
+      <label>Deviation / observation<textarea id="correctiveDeviation" rows="2" required></textarea></label>
+      <label>Immediate action taken<textarea id="correctiveImmediate" rows="3" required placeholder="What did you do immediately?"></textarea></label>
+      <label>Product disposition / assessment<textarea id="correctiveDisposition" rows="2" placeholder="e.g. moved, discarded, held for assessment"></textarea></label>
+      <label>Follow-up temperature (°C)<input id="correctiveFollowup" type="number" step="0.1"></label>
+      <label>Additional notes<textarea id="correctiveNotes" rows="2"></textarea></label>
+      <div id="correctiveFormMessage" class="form-status hidden" role="status" aria-live="polite"></div>
+      <div class="modal-actions"><button type="button" id="cancelCorrective" class="secondary" data-i18n="common.cancel">Cancel</button><button id="saveCorrectiveBtn" class="primary" type="submit" data-i18n="corrective.save">Save Corrective Action</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="verifyDialog" class="modal small-modal">
+    <form id="verifyForm" method="dialog">
+      <div class="modal-head"><div><div class="eyebrow">VERIFICATION</div><h2>Supervisor verification</h2></div><button type="button" id="closeVerify" class="icon-btn">×</button></div>
+      <input id="verifyActionId" type="hidden">
+      <label>Verification notes<textarea id="verifyNotes" rows="3" required placeholder="Confirm the corrective action and outcome."></textarea></label>
+      <div class="modal-actions"><button type="button" id="cancelVerify" class="secondary" data-i18n="common.cancel">Cancel</button><button class="primary" type="submit" data-i18n="corrective.verify">Verify Action</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="verifyDayDialog" class="modal small-modal">
+    <form id="verifyDayForm" method="dialog">
+      <div class="modal-head"><div><div class="eyebrow">DAILY SIGN-OFF</div><h2>Verify Daily Record</h2></div><button type="button" id="closeVerifyDay" class="icon-btn">×</button></div>
+      <label>Verification notes<textarea id="verifyDayNotes" rows="3" required placeholder="Daily record reviewed; deviations and corrective actions checked."></textarea></label>
+      <div class="modal-actions"><button type="button" id="cancelVerifyDay" class="secondary" data-i18n="common.cancel">Cancel</button><button class="primary" type="submit" data-i18n="records.verifyDay">Verify Day</button></div>
+    </form>
+  </dialog>
+
+  <script src="mobile-shell.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

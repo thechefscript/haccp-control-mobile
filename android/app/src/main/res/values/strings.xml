@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">HACCP Control</string>
+    <string name="title_activity_main">HACCP Control</string>
+    <string name="package_name">site.thechefscript.haccpcontrol</string>
+    <string name="custom_url_scheme">site.thechefscript.haccpcontrol</string>
+</resources>

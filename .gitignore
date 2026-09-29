@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Local Supabase configuration
+www/config.js
+android/app/src/main/assets/public/config.js
+
+# Android local/generated files
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+
+# Android Studio
+.idea/
+
+# Signing keys - NEVER COMMIT
+*.jks
+*.keystore
+
+# Logs / OS files
+*.log
+.DS_Store
+Thumbs.db

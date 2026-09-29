@@ -1,0 +1,7 @@
+HACCP Control Mobile 1.0 baseline
+Source: HACCP Control v3.9.2 + v3.9.2.1 timezone patch
+Native runtime target: Capacitor 8 / Android
+App ID: site.thechefscript.haccpcontrol
+App name: HACCP Control
+Backend: existing Supabase project (unchanged)
+Configuration: www/config.js copied locally by user (not included in ZIP)
