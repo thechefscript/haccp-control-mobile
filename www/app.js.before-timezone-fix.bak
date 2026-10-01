@@ -227,7 +227,7 @@
       const observed = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
       guess -= observed - target;
     }
-    return new Date(guess).toISOString();
+    return new Date(guess);
   }
 
   function localDateTimeInput(date = new Date()) {
@@ -323,7 +323,6 @@
       state.authActionMode = null;
     } else showOnly('authScreen');
   }
-
 
   function resetState() {
     state.user = state.profile = state.membership = state.kitchen = null;
@@ -508,215 +507,23 @@
     await maybeShowOverdueReminder();
   }
 
-  /* =========================================================
-     MOBILE 1.4 STORAGE TEMPERATURE NATIVE NOTIFICATIONS
-  ========================================================= */
-
-  function storageReminderNotificationId(round) {
-    const seed =
-      `${state.kitchen?.id || 'kitchen'}|${round.date}|${round.key}`;
-
-    let hash = 0;
-
-    for (let i = 0; i < seed.length; i++) {
-      hash =
-        ((hash * 31) + seed.charCodeAt(i)) >>> 0;
-    }
-
-    return 100000000 + (hash % 1000000000);
-  }
-
-  async function handleNativeStorageNotification(event) {
-    const notification =
-      event?.detail?.notification;
-
-    const extra =
-      notification?.extra || {};
-
-    if (extra.type !== 'storage-overdue') {
-      return;
-    }
-
-    try {
-      await loadTodaySlotLogs();
-      await navigate('check');
-
-    } catch (error) {
-      console.error(
-        '[HACCP Native Notification Routing]',
-        error
-      );
-    }
-  }
-
-  if (!window.__haccpStorageNotificationListenerReady) {
-    window.__haccpStorageNotificationListenerReady = true;
-
-    window.addEventListener(
-      'haccp:native-notification',
-      handleNativeStorageNotification
-    );
-  }
-
   async function maybeShowOverdueReminder(force = false) {
-    if (
-      !state.user ||
-      !state.kitchen ||
-      !state.equipment.length
-    ) {
-      return;
-    }
-
-    const round =
-      activeMonitoringRound();
-
-    if (!round.overdue) {
-      return;
-    }
-
-    if (
-      !state.todaySlotLogs.length ||
-      state.todaySlotLogs.some(
-        x => x.monitoring_slot !== round.key
-      )
-    ) {
-      await loadTodaySlotLogs();
-    }
-
-    const done = new Set(
-      state.todaySlotLogs
-        .filter(
-          x => x.monitoring_slot === round.key
-        )
-        .map(
-          x => x.equipment_id
-        )
-    );
-
-    const remaining =
-      state.equipment.filter(
-        e => !done.has(e.id)
-      );
-
-    const notificationId =
-      storageReminderNotificationId(round);
-
-    /*
-      If the entire monitoring round is complete,
-      remove its Android notification.
-    */
-    if (!remaining.length) {
-
-      if (
-        window.HACCPMobile?.isNative?.() &&
-        typeof window.HACCPMobile?.cancelNotification === 'function'
-      ) {
-        try {
-          await window.HACCPMobile.cancelNotification(
-            notificationId
-          );
-
-        } catch (error) {
-          console.error(
-            '[HACCP Storage Notification Cancel]',
-            error
-          );
-        }
-      }
-
-      return;
-    }
-
-    /*
-      Preserve the existing 15-minute reminder throttle.
-    */
-    const key =
-      `haccp-reminder-${state.kitchen.id}-${round.date}-${round.key}`;
-
-    const last =
-      Number(
-        sessionStorage.getItem(key) || 0
-      );
-
-    if (
-      !force &&
-      Date.now() - last < 15 * 60 * 1000
-    ) {
-      return;
-    }
-
-    sessionStorage.setItem(
-      key,
-      String(Date.now())
-    );
-
-    /*
-      Android native notification.
-      Only runs inside the installed Capacitor app.
-    */
-    if (
-      window.HACCPMobile?.isNative?.() &&
-      typeof window.HACCPMobile?.notify === 'function'
-    ) {
-      try {
-        await window.HACCPMobile.notify({
-          id: notificationId,
-
-          title:
-            t('monitor.overdueTitle'),
-
-          body:
-            `${round.key}: ${remaining.length} ${t('monitor.remaining')}. ` +
-            t('monitor.overdueBody'),
-
-          extra: {
-            type: 'storage-overdue',
-            round: round.key,
-            date: round.date
-          }
-        });
-
-      } catch (error) {
-        console.error(
-          '[HACCP Storage Notification]',
-          error
-        );
-      }
-    }
-
-    /*
-      Keep the existing in-app overdue dialog too.
-    */
-    const dialog =
-      $('overdueDialog');
-
-    if (
-      !dialog ||
-      dialog.open
-    ) {
-      return;
-    }
-
-    $('overdueRoundName').textContent =
-      `${round.key} - ${String(round.hour).padStart(2, '0')}:${String(round.minute).padStart(2, '0')}`;
-
-    $('overdueRemaining').textContent =
-      `${remaining.length} ${t('monitor.remaining')}`;
-
-    $('overdueEquipmentList').innerHTML =
-      remaining
-        .slice(0, 8)
-        .map(
-          e =>
-            `<li>${esc(e.code)} - ${esc(e.name)}</li>`
-        )
-        .join('') +
-      (
-        remaining.length > 8
-          ? `<li>+${remaining.length - 8} more</li>`
-          : ''
-      );
-
+    if (!state.user || !state.kitchen || !state.equipment.length) return;
+    const round = activeMonitoringRound();
+    if (!round.overdue) return;
+    if (!state.todaySlotLogs.length || state.todaySlotLogs.some(x => x.monitoring_slot !== round.key)) await loadTodaySlotLogs();
+    const done = new Set(state.todaySlotLogs.filter(x => x.monitoring_slot === round.key).map(x => x.equipment_id));
+    const remaining = state.equipment.filter(e => !done.has(e.id));
+    if (!remaining.length) return;
+    const key = `haccp-reminder-${state.kitchen.id}-${round.date}-${round.key}`;
+    const last = Number(sessionStorage.getItem(key) || 0);
+    if (!force && Date.now() - last < 15 * 60 * 1000) return;
+    sessionStorage.setItem(key, String(Date.now()));
+    const dialog = $('overdueDialog');
+    if (!dialog || dialog.open) return;
+    $('overdueRoundName').textContent = `${round.key} · ${String(round.hour).padStart(2,'0')}:${String(round.minute).padStart(2,'0')}`;
+    $('overdueRemaining').textContent = `${remaining.length} ${t('monitor.remaining')}`;
+    $('overdueEquipmentList').innerHTML = remaining.slice(0,8).map(e => `<li>${esc(e.code)} — ${esc(e.name)}</li>`).join('') + (remaining.length > 8 ? `<li>+${remaining.length-8} more</li>` : '');
     dialog.showModal();
   }
 
@@ -1028,211 +835,7 @@
   async function verifyThawingBatch(e){ e.preventDefault(); const {error}=await db.rpc('verify_thawing_batch',{p_batch_id:$('thawingBatchVerifyId').value,p_notes:$('thawingBatchVerifyNotes').value.trim()}); if(error){toast(error.message,'error');return;} $('thawingBatchVerifyDialog').close(); toast(thawingCopy('Thawing batch verified.','Batch pencairan diverifikasi.'),'good'); await loadThawingRecords(); await loadNotifications(false); }
 
   async function buildThawingReportHtml(date){ const rows=await getThawingRecordsForDate(date); const p=state.property||{}; const logo=p.logo_data_url?`<img class="property-logo" src="${esc(p.logo_data_url)}">`:''; const pass=rows.reduce((n,b)=>n+(b.readings||[]).filter(r=>r.status==='PASS').length,0),out=rows.reduce((n,b)=>n+(b.readings||[]).filter(r=>r.status==='OUT').length,0); return `<!doctype html><html><head><meta charset="utf-8"><title>Thawing HACCP ${esc(date)}</title><style>@page{size:A4 landscape;margin:10mm}body{font-family:Arial,sans-serif;font-size:9px;color:#111}.property-head{display:flex;gap:12px;border-bottom:2px solid #111;padding-bottom:8px}.property-logo{max-width:95px;max-height:52px}h1{font-size:20px}table{width:100%;border-collapse:collapse}th,td{padding:5px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top}th{font-size:7px;text-transform:uppercase}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:12px 0}.box{border:1px solid #ccc;padding:7px}.box b{display:block;font-size:14px}.muted{color:#666}.out{font-weight:bold}.footer{margin-top:12px;border-top:1px solid #ddd;padding-top:7px;color:#666}</style></head><body>${p.property_name||p.logo_data_url?`<div class="property-head">${logo}<div><b>${esc(p.property_name||'')}</b><br>${esc(p.address||'')}</div></div>`:''}<h1>${thawingCopy('THAWING / DEFROST HACCP RECORD','CATATAN HACCP PENCAIRAN / DEFROST')} · ${esc(state.kitchen.name)}</h1><div>${esc(date)} · ${esc(kitchenTimeZone())}</div><div class="meta"><div class="box">${thawingCopy('Batches','Batch')}<b>${rows.length}</b></div><div class="box">PASS ${thawingCopy('readings','pembacaan')}<b>${pass}</b></div><div class="box">OUT ${thawingCopy('readings','pembacaan')}<b>${out}</b></div><div class="box">${thawingCopy('Ready','Siap')}<b>${rows.filter(x=>x.status==='ready').length}</b></div></div><table><thead><tr><th>${thawingCopy('Product / batch','Produk / batch')}</th><th>${thawingCopy('Standard / method','Standar / metode')}</th><th>${thawingCopy('Start / expected','Mulai / perkiraan')}</th><th>${thawingCopy('Location','Lokasi')}</th><th>${thawingCopy('Readings','Pembacaan')}</th><th>${thawingCopy('Deviation / action','Deviasi / tindakan')}</th><th>${thawingCopy('Final status','Status akhir')}</th></tr></thead><tbody>${rows.map(b=>`<tr><td><b>${esc(b.product_name)}</b>${b.batch_reference?`<br>${esc(b.batch_reference)}`:''}${b.intended_use?`<br><span class="muted">${esc(b.intended_use)}</span>`:''}</td><td>${esc(b.standard_code_snapshot)} — ${esc(b.standard_name_snapshot)}<br><span class="muted">${esc(thawingMethodLabel(b.method_snapshot))} · ${esc(b.max_temperature_snapshot!=null?`≤ ${b.max_temperature_snapshot}${b.unit_snapshot}`:'Procedure based')}</span></td><td>${fmtDateTime(b.started_at)}${b.expected_complete_at?`<br>${fmtDateTime(b.expected_complete_at)}`:''}</td><td>${esc(b.thaw_location||'—')}</td><td>${(b.readings||[]).length?(b.readings||[]).slice().sort((a,b)=>new Date(a.recorded_at)-new Date(b.recorded_at)).map(r=>`${fmtTime(r.recorded_at)} · ${esc(r.actual_temperature)}${esc(r.unit)} · <b>${esc(r.status)}</b>`).join('<br>'):'—'}</td><td>${(b.readings||[]).filter(r=>r.status==='OUT').map(r=>{const a=thawingActionForReading(r);return `<span class="out">${esc(r.actual_temperature)}${esc(r.unit)}</span>${a?` · ${esc(a.immediate_action)}${a.verified_at?' · VERIFIED':' · awaiting verify'}`:' · ACTION REQUIRED'}`;}).join('<br>')||'—'}</td><td>${esc(String(b.status).toUpperCase())}${b.completed_at?`<br>${fmtDateTime(b.completed_at)}`:''}${b.completion_notes?`<br><span class="muted">${esc(b.completion_notes)}</span>`:''}${b.verification_status==='VERIFIED'?`<br><b>VERIFIED</b>${b.verifier?` · ${esc(b.verifier.full_name||b.verifier.email||'Supervisor')}`:''}`:b.verification_status==='PENDING'?'<br><b>VERIFICATION PENDING</b>':''}</td></tr>`).join('')}</tbody></table><div class="footer">${thawingCopy('Limits and instructions shown are historical snapshots of the property-approved thawing standard used when each batch was started.','Batas dan instruksi yang ditampilkan adalah snapshot historis dari standar pencairan yang disetujui properti saat setiap batch dimulai.')}</div></body></html>`; }
-  async function runThawingReport(mode = 'print') {
-    const date = $('recordDate').value || kitchenDate();
-
-    const nativePdfShare =
-      mode === 'download' &&
-      window.HACCPMobile?.isNative?.() &&
-      typeof window.HACCPMobile?.sharePdfHtml === 'function';
-
-    const popup =
-      mode === 'view' || nativePdfShare
-        ? null
-        : openReportWindow();
-
-    if (mode !== 'view' && !nativePdfShare && !popup) {
-      toast(
-        'Allow pop-ups so the HACCP record window can open.',
-        'error'
-      );
-      return;
-    }
-
-    try {
-      const html =
-        await buildThawingReportHtml(date);
-
-      if (mode === 'view') {
-        return showRecordPreview(
-          `${thawingCopy(
-            'Thawing Records',
-            'Catatan Pencairan'
-          )} · ${date}`,
-          html
-        );
-      }
-
-      if (mode === 'download') {
-        const filename =
-          `Thawing-HACCP-${date}.pdf`;
-
-        if (nativePdfShare) {
-          await window.HACCPMobile.sharePdfHtml({
-            html,
-            filename,
-            title:
-              `${thawingCopy(
-                'Thawing Records',
-                'Catatan Pencairan'
-              )} · ${date}`,
-            text:
-              'HACCP thawing record exported from HACCP Control.'
-          });
-
-          return;
-        }
-
-        writeReportWindow(
-          popup,
-          pdfDownloadDocument(
-            html,
-            filename
-          )
-        );
-
-        return;
-      }
-
-      writeReportWindow(
-        popup,
-        html
-      );
-
-      popup.addEventListener(
-        'load',
-        () =>
-          setTimeout(
-            () => popup.print(),
-            250
-          ),
-        { once: true }
-      );
-
-    } catch (error) {
-      if (popup && !popup.closed) {
-        popup.close();
-      }
-
-      toast(
-        error.message ||
-          'Could not prepare thawing HACCP record.',
-        'error'
-      );
-    }
-  }
-
-  /* =========================================================
-     MOBILE 1.2 - NATIVE QR INTERNAL ROUTING
-  ========================================================= */
-
-  async function handleNativeQrScan(event) {
-    const type = event?.detail?.type;
-    const id = event?.detail?.id;
-
-    if (!type || !id) {
-      toast('Invalid HACCP QR code.', 'error');
-      return;
-    }
-
-    if (!state.user || !state.kitchen) {
-      toast('Please sign in before scanning HACCP QR codes.', 'error');
-      return;
-    }
-
-    try {
-
-      if (type === 'equipment') {
-        let equipment = state.equipment.find(x => x.id === id);
-
-        if (!equipment) {
-          await loadConfiguration();
-          equipment = state.equipment.find(x => x.id === id);
-        }
-
-        if (!equipment) {
-          toast('Equipment QR is not active in this kitchen.', 'error');
-          return;
-        }
-
-        state.monitoringLocationId =
-          equipment.location_id || '__other__';
-
-        localStorage.setItem(
-          'haccpMonitoringLocation',
-          state.monitoringLocationId
-        );
-
-        await navigate('check');
-
-        requestAnimationFrame(() => {
-          const card = document.querySelector(
-            `[data-monitor-equipment="${CSS.escape(id)}"]`
-          );
-
-          if (!card) return;
-
-          card.scrollIntoView({
-            behavior: 'smooth',
-            block: 'center'
-          });
-
-          card.querySelector('[data-monitor-temp]')?.focus();
-        });
-
-        return;
-      }
-
-      if (type === 'sanitation') {
-        await navigate('sanitation');
-
-        const exists =
-          (state.sanitationStandards || []).some(
-            x => x.id === id
-          );
-
-        if (!exists) {
-          toast('Sanitation QR is not active in this kitchen.', 'error');
-          return;
-        }
-
-        openSanitationRecord(id);
-        return;
-      }
-
-      if (type === 'thawing') {
-        await navigate('thawing');
-
-        const exists =
-          (state.thawingStandards || []).some(
-            x => x.id === id
-          );
-
-        if (!exists) {
-          toast('Thawing QR is not active in this kitchen.', 'error');
-          return;
-        }
-
-        await openThawingBatch();
-
-        $('thawingBatchStandard').value = id;
-        updateThawingBatchPreview();
-
-        return;
-      }
-
-      toast('Unsupported HACCP QR code.', 'error');
-
-    } catch (error) {
-      console.error('[HACCP Native QR]', error);
-      toast(error?.message || 'Could not open this HACCP QR code.', 'error');
-    }
-  }
-
-  window.addEventListener(
-    'haccp:native-qr',
-    handleNativeQrScan
-  );
+  async function runThawingReport(mode='print'){ const date=$('recordDate').value||kitchenDate(),popup=mode==='view'?null:openReportWindow(); try{const html=await buildThawingReportHtml(date); if(mode==='view')return showRecordPreview(`${thawingCopy('Thawing Records','Catatan Pencairan')} · ${date}`,html); if(mode==='download')return writeReportWindow(popup,pdfDownloadDocument(html,`Thawing-HACCP-${date}.pdf`)); writeReportWindow(popup,html); popup.addEventListener('load',()=>setTimeout(()=>popup.print(),250),{once:true});}catch(e){if(popup&&!popup.closed)popup.close();toast(e.message,'error');} }
 
   async function getDailyLogs(date) {
     const { data, error } = await db
@@ -2776,17 +2379,8 @@
     const isReceiving = kind === 'receiving';
     const isSanitation = kind === 'sanitation';
     const title = isProcess ? t('records.processTitle') : isCalibration ? t('calibration.recordsTitle') : isReceiving ? t('records.receivingTitle') : isSanitation ? sanitationCopy('Cleaning & Sanitation Records','Catatan Cleaning & Sanitation') : t('records.storageTitle');
-    const nativePdfShare =
-      mode === 'download' &&
-      window.HACCPMobile?.isNative?.() &&
-      typeof window.HACCPMobile?.sharePdfHtml === 'function';
-
-    const popup =
-      mode === 'view' || nativePdfShare
-        ? null
-        : openReportWindow();
-
-    if (mode !== 'view' && !nativePdfShare && !popup) {
+    const popup = mode === 'view' ? null : openReportWindow();
+    if (mode !== 'view' && !popup) {
       toast(isProcess ? t('processPdf.popupBlocked') : 'Allow pop-ups so the HACCP record window can open.', 'error');
       return;
     }
@@ -2797,25 +2391,7 @@
         return;
       }
       if (mode === 'download') {
-        if (nativePdfShare) {
-          await window.HACCPMobile.sharePdfHtml({
-            html,
-            filename: reportFilename(kind, date),
-            title: `${title} ? ${date}`,
-            text: 'HACCP record exported from HACCP Control.'
-          });
-
-          return;
-        }
-
-        writeReportWindow(
-          popup,
-          pdfDownloadDocument(
-            html,
-            reportFilename(kind, date)
-          )
-        );
-
+        writeReportWindow(popup, pdfDownloadDocument(html, reportFilename(kind, date)));
         return;
       }
       writeReportWindow(popup, html);
@@ -2838,8 +2414,8 @@
       .from('process_readings')
       .select(`id,batch_id,step_id,process_type,stage_label,actual_temperature,unit,status,limit_text_snapshot,notes,recorded_at,profiles!process_readings_recorded_by_fkey(full_name,email),process_corrective_actions(id,immediate_action,product_disposition,followup_temperature,notes,created_at,verified_at,verification_notes,createdBy:profiles!process_corrective_actions_created_by_fkey(full_name,email),verifier:profiles!process_corrective_actions_verified_by_fkey(full_name,email))`)
       .eq('kitchen_id', state.kitchen.id)
-      .gte('recorded_at', start)
-      .lt('recorded_at', end)
+      .gte('recorded_at', start.toISOString())
+      .lt('recorded_at', end.toISOString())
       .order('recorded_at', { ascending: true });
     if (readingsError) throw readingsError;
     const rows = readings || [];
@@ -2997,7 +2573,7 @@
     if (eqError) { toast(eqError.message,'error'); return; }
     if (auditError) console.error(auditError);
     $('locationCount').textContent = state.locations.length;
-    $('locationList').innerHTML = state.locations.length ? state.locations.map(l => `<div class="setting-row"><div><strong>${esc(l.name)}</strong><small>${esc(l.description || 'Location')}</small></div><div class="setting-meta"><button type="button" class="secondary" data-edit-location="${esc(l.id)}">Edit</button><button class="secondary" data-archive-location="${esc(l.id)}">Archive</button></div></div>`).join('') : '<div class="empty">No active locations.</div>';
+    $('locationList').innerHTML = state.locations.length ? state.locations.map(l => `<div class="setting-row"><div><strong>${esc(l.name)}</strong><small>${esc(l.description || 'Location')}</small></div><div class="setting-meta"><button class="secondary" data-edit-location="${esc(l.id)}">Edit</button><button class="secondary" data-archive-location="${esc(l.id)}">Archive</button></div></div>`).join('') : '<div class="empty">No active locations.</div>';
     populateEquipmentAdminSelectors();
     $('equipmentCount').textContent = (allEquipment || []).filter(e=>e.active).length;
     $('equipmentList').innerHTML = (allEquipment || []).length ? (allEquipment || []).map(e => `<div class="setting-row ${e.active ? '' : 'archived-row'}"><div><strong>${esc(e.code)} — ${esc(e.name)}</strong><small>${esc(e.locations?.name || 'No location')} · ${esc(e.storage_type)}${e.haccp_limits ? ` · ${esc(e.haccp_limits.code)} ${esc(e.haccp_limits.limit_text)}` : ''}${e.monitoring_slots?.length ? ` · ${esc(e.monitoring_slots.join(' / '))}` : ''}${!e.active ? ' · ARCHIVED' : ''}</small></div><div class="setting-meta"><button class="secondary" data-edit-equipment="${esc(e.id)}">Edit</button>${e.active ? `<button class="secondary" data-deactivate-equipment="${esc(e.id)}">Archive</button>` : `<button class="secondary" data-restore-equipment="${esc(e.id)}">Restore</button>`}</div></div>`).join('') : '<div class="empty">No equipment configured.</div>';
@@ -3022,73 +2598,6 @@
 
   function editLocation(id) { const l=state.locations.find(x=>x.id===id); if(!l)return; $('locationId').value=l.id;$('locationName').value=l.name;$('locationDescription').value=l.description||'';$('locationFormTitle').textContent='Edit location';$('locationSaveBtn').textContent='Save Changes';$('locationCancelBtn').classList.remove('hidden'); }
 
-  /*
-     Reliable Kitchen Location Edit handler.
-     Independent from the main bindEvents() chain.
-  */
-  if (!window.__haccpLocationEditListenerReady) {
-    window.__haccpLocationEditListenerReady = true;
-
-    document.addEventListener(
-      'click',
-      event => {
-        const button =
-          event.target?.closest?.('[data-edit-location]');
-
-        if (!button) return;
-
-        event.preventDefault();
-        event.stopImmediatePropagation();
-
-        const locationId =
-          button.dataset.editLocation;
-
-        if (!locationId) {
-          console.error(
-            '[Location Edit] Missing location ID.'
-          );
-          return;
-        }
-
-        try {
-          editLocation(locationId);
-
-          const form =
-            document.getElementById('locationForm');
-
-          const panel =
-            form?.closest('details');
-
-          if (panel) {
-            panel.open = true;
-          }
-
-          requestAnimationFrame(() => {
-            form?.scrollIntoView({
-              behavior: 'smooth',
-              block: 'start'
-            });
-
-            setTimeout(() => {
-              document
-                .getElementById('locationName')
-                ?.focus();
-            }, 300);
-          });
-
-        } catch (error) {
-          console.error(
-            '[Location Edit]',
-            error
-          );
-        }
-      },
-      true
-    );
-  }
-
-
-
   async function archiveLocation(id) {
     const used=state.equipment.filter(e=>e.location_id===id && e.active); if(used.length){toast(`Archive or move ${used.length} active equipment unit(s) first.`,'error');return;}
     if(!confirm('Archive this location? Historical records remain unchanged.'))return;
@@ -3105,58 +2614,6 @@
   }
 
   async function editEquipment(id){ const {data:e,error}=await db.from('equipment').select('*').eq('id',id).eq('kitchen_id',state.kitchen.id).single(); if(error){toast(error.message,'error');return;} $('equipmentId').value=e.id;$('equipmentLocation').value=e.location_id||'';$('equipmentStorageType').value=e.storage_type||'Other';$('equipmentCode').value=e.code||'';$('equipmentName').value=e.name||'';$('equipmentDefaultLimit').value=e.default_limit_id||'';$('equipmentSchedule').value=(e.monitoring_slots||[]).join(', ');$('equipmentDescription').value=e.description||'';$('equipmentFormTitle').textContent='Edit equipment';$('equipmentSaveBtn').textContent='Save Changes';$('equipmentCancelBtn').classList.remove('hidden'); window.scrollTo({top:0,behavior:'smooth'}); }
-
-  /*
-     EQUIPMENT EDIT - DEDICATED CLICK HANDLER
-
-     This is deliberately independent from bindEvents().
-     It prevents an unrelated event-binding failure elsewhere
-     from disabling Equipment -> Edit.
-  */
-  if (!window.__haccpEquipmentEditListenerReady) {
-    window.__haccpEquipmentEditListenerReady = true;
-
-    document.addEventListener(
-      'click',
-      event => {
-        const button =
-          event.target?.closest?.('[data-edit-equipment]');
-
-        if (!button) {
-          return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-
-        const equipmentId =
-          button.dataset.editEquipment;
-
-        if (!equipmentId) {
-          console.error(
-            '[Equipment Edit] Missing equipment ID.'
-          );
-          return;
-        }
-
-        editEquipment(equipmentId)
-          .catch(error => {
-            console.error(
-              '[Equipment Edit]',
-              error
-            );
-
-            toast(
-              error?.message ||
-              'Unable to open equipment for editing.',
-              'error'
-            );
-          });
-      },
-      true
-    );
-  }
-
 
   async function deactivateEquipment(id) {
     if (!confirm('Archive this equipment? Historical records remain unchanged and the QR will stop accepting new checks.')) return;

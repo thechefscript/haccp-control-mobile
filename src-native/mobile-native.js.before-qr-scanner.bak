@@ -1,0 +1,373 @@
+import { Capacitor } from '@capacitor/core';
+import {
+  Camera,
+  MediaTypeSelection
+} from '@capacitor/camera';
+
+function getExtension(result, blob) {
+  const format = result?.metadata?.format?.toLowerCase();
+
+  if (format === 'jpeg' || format === 'jpg') return 'jpg';
+  if (format === 'png') return 'png';
+  if (format === 'webp') return 'webp';
+
+  const type = blob?.type || '';
+
+  if (type.includes('png')) return 'png';
+  if (type.includes('webp')) return 'webp';
+
+  return 'jpg';
+}
+
+async function resultToFile(result) {
+  if (!result?.webPath) {
+    throw new Error('No image path returned.');
+  }
+
+  const response = await fetch(result.webPath);
+
+  if (!response.ok) {
+    throw new Error('Unable to read image.');
+  }
+
+  const blob = await response.blob();
+  const extension = getExtension(result, blob);
+
+  return new File(
+    [blob],
+    `haccp-evidence-${Date.now()}.${extension}`,
+    {
+      type: blob.type || `image/${extension}`,
+      lastModified: Date.now()
+    }
+  );
+}
+
+async function takeEvidencePhoto() {
+  try {
+    const result = await Camera.takePhoto({
+      quality: 80,
+      targetWidth: 1600,
+      targetHeight: 1200,
+      correctOrientation: true,
+      saveToGallery: false,
+      includeMetadata: true
+    });
+
+    const file = await resultToFile(result);
+
+    return {
+      cancelled: false,
+      file,
+      webPath: result.webPath,
+      uri: result.uri,
+      metadata: result.metadata || null
+    };
+
+  } catch (error) {
+    if (
+      error?.code === 'OS-PLUG-CAMR-0006' ||
+      /cancel/i.test(error?.message || '')
+    ) {
+      return { cancelled: true };
+    }
+
+    console.error('[HACCP Camera]', error);
+    throw error;
+  }
+}
+
+async function chooseEvidencePhoto() {
+  try {
+    const { results } = await Camera.chooseFromGallery({
+      mediaType: MediaTypeSelection.Photo,
+      allowMultipleSelection: false,
+      quality: 80,
+      targetWidth: 1600,
+      targetHeight: 1200,
+      includeMetadata: true
+    });
+
+    const result = results?.[0];
+
+    if (!result) {
+      return { cancelled: true };
+    }
+
+    const file = await resultToFile(result);
+
+    return {
+      cancelled: false,
+      file,
+      webPath: result.webPath,
+      uri: result.uri,
+      metadata: result.metadata || null
+    };
+
+  } catch (error) {
+    if (/cancel/i.test(error?.message || '')) {
+      return { cancelled: true };
+    }
+
+    console.error('[HACCP Gallery]', error);
+    throw error;
+  }
+}
+
+window.HACCPMobile = {
+  isNative() {
+    return Capacitor.isNativePlatform();
+  },
+
+  getPlatform() {
+    return Capacitor.getPlatform();
+  },
+
+  takeEvidencePhoto,
+
+  chooseEvidencePhoto
+};
+
+console.log(
+  `[HACCP Mobile] Native bridge ready: ${Capacitor.getPlatform()}`
+);
+/* =========================================================
+   MOBILE 1.1 PHOTO INPUT BRIDGE
+   Native Camera / Gallery -> existing HACCP photo inputs
+========================================================= */
+
+function putNativeFileIntoInput(input, file) {
+  const transfer = new DataTransfer();
+
+  transfer.items.add(file);
+  input.files = transfer.files;
+
+  input.dispatchEvent(
+    new Event('change', {
+      bubbles: true
+    })
+  );
+}
+
+
+async function useNativePhotoSource(input, source) {
+  try {
+    const result =
+      source === 'camera'
+        ? await window.HACCPMobile.takeEvidencePhoto()
+        : await window.HACCPMobile.chooseEvidencePhoto();
+
+    if (
+      !result ||
+      result.cancelled ||
+      !result.file
+    ) {
+      return;
+    }
+
+    putNativeFileIntoInput(
+      input,
+      result.file
+    );
+
+  } catch (error) {
+
+    console.error(
+      `[HACCP Mobile] ${source} failed:`,
+      error
+    );
+
+    /*
+      Fallback to the existing HTML file input.
+    */
+
+    if (source === 'gallery') {
+
+      const capture =
+        input.getAttribute('capture');
+
+      input.removeAttribute('capture');
+
+      input.click();
+
+      if (capture !== null) {
+        setTimeout(
+          () => input.setAttribute(
+            'capture',
+            capture
+          ),
+          500
+        );
+      }
+
+    } else {
+
+      input.click();
+
+    }
+  }
+}
+
+
+function enhancePhotoInput(inputId) {
+
+  const input =
+    document.getElementById(inputId);
+
+  if (!input) {
+    return;
+  }
+
+  if (
+    input.dataset.nativePhotoReady === 'true'
+  ) {
+    return;
+  }
+
+  const label =
+    input.closest('label');
+
+  if (!label) {
+    return;
+  }
+
+  input.dataset.nativePhotoReady = 'true';
+
+
+  const actions =
+    document.createElement('div');
+
+  actions.className =
+    'native-photo-actions';
+
+  actions.style.cssText = `
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    align-items:center;
+  `;
+
+
+  const cameraButton =
+    document.createElement('button');
+
+  cameraButton.type = 'button';
+  cameraButton.className = 'secondary';
+  cameraButton.textContent = 'Camera';
+
+
+  const galleryButton =
+    document.createElement('button');
+
+  galleryButton.type = 'button';
+  galleryButton.className = 'secondary';
+  galleryButton.textContent = 'Gallery';
+
+
+  cameraButton.addEventListener(
+    'click',
+    async () => {
+
+      cameraButton.disabled = true;
+      galleryButton.disabled = true;
+
+      try {
+
+        await useNativePhotoSource(
+          input,
+          'camera'
+        );
+
+      } finally {
+
+        cameraButton.disabled = false;
+        galleryButton.disabled = false;
+
+      }
+    }
+  );
+
+
+  galleryButton.addEventListener(
+    'click',
+    async () => {
+
+      cameraButton.disabled = true;
+      galleryButton.disabled = true;
+
+      try {
+
+        await useNativePhotoSource(
+          input,
+          'gallery'
+        );
+
+      } finally {
+
+        cameraButton.disabled = false;
+        galleryButton.disabled = false;
+
+      }
+    }
+  );
+
+
+  actions.append(
+    cameraButton,
+    galleryButton
+  );
+
+
+  /*
+    Keep the original input in the DOM so
+    the existing app.js listeners continue
+    to work.
+
+    Only hide its old label on native.
+  */
+
+  label.before(actions);
+  label.style.display = 'none';
+}
+
+
+function initialiseNativePhotoInputs() {
+
+  if (
+    !window.HACCPMobile?.isNative?.()
+  ) {
+    return;
+  }
+
+
+  [
+    'receivingPhotoInput',
+    'thawingPhotoInput',
+    'sanitationPhotoInput',
+    'sanitationVerifyPhotoInput'
+  ].forEach(
+    enhancePhotoInput
+  );
+
+
+  console.log(
+    '[HACCP Mobile] Native photo controls ready'
+  );
+}
+
+
+if (
+  document.readyState === 'loading'
+) {
+
+  document.addEventListener(
+    'DOMContentLoaded',
+    initialiseNativePhotoInputs
+  );
+
+} else {
+
+  initialiseNativePhotoInputs();
+
+}
+

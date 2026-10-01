@@ -2997,7 +2997,7 @@
     if (eqError) { toast(eqError.message,'error'); return; }
     if (auditError) console.error(auditError);
     $('locationCount').textContent = state.locations.length;
-    $('locationList').innerHTML = state.locations.length ? state.locations.map(l => `<div class="setting-row"><div><strong>${esc(l.name)}</strong><small>${esc(l.description || 'Location')}</small></div><div class="setting-meta"><button type="button" class="secondary" data-edit-location="${esc(l.id)}">Edit</button><button class="secondary" data-archive-location="${esc(l.id)}">Archive</button></div></div>`).join('') : '<div class="empty">No active locations.</div>';
+    $('locationList').innerHTML = state.locations.length ? state.locations.map(l => `<div class="setting-row"><div><strong>${esc(l.name)}</strong><small>${esc(l.description || 'Location')}</small></div><div class="setting-meta"><button class="secondary" data-edit-location="${esc(l.id)}">Edit</button><button class="secondary" data-archive-location="${esc(l.id)}">Archive</button></div></div>`).join('') : '<div class="empty">No active locations.</div>';
     populateEquipmentAdminSelectors();
     $('equipmentCount').textContent = (allEquipment || []).filter(e=>e.active).length;
     $('equipmentList').innerHTML = (allEquipment || []).length ? (allEquipment || []).map(e => `<div class="setting-row ${e.active ? '' : 'archived-row'}"><div><strong>${esc(e.code)} — ${esc(e.name)}</strong><small>${esc(e.locations?.name || 'No location')} · ${esc(e.storage_type)}${e.haccp_limits ? ` · ${esc(e.haccp_limits.code)} ${esc(e.haccp_limits.limit_text)}` : ''}${e.monitoring_slots?.length ? ` · ${esc(e.monitoring_slots.join(' / '))}` : ''}${!e.active ? ' · ARCHIVED' : ''}</small></div><div class="setting-meta"><button class="secondary" data-edit-equipment="${esc(e.id)}">Edit</button>${e.active ? `<button class="secondary" data-deactivate-equipment="${esc(e.id)}">Archive</button>` : `<button class="secondary" data-restore-equipment="${esc(e.id)}">Restore</button>`}</div></div>`).join('') : '<div class="empty">No equipment configured.</div>';
@@ -3021,73 +3021,6 @@
   }
 
   function editLocation(id) { const l=state.locations.find(x=>x.id===id); if(!l)return; $('locationId').value=l.id;$('locationName').value=l.name;$('locationDescription').value=l.description||'';$('locationFormTitle').textContent='Edit location';$('locationSaveBtn').textContent='Save Changes';$('locationCancelBtn').classList.remove('hidden'); }
-
-  /*
-     Reliable Kitchen Location Edit handler.
-     Independent from the main bindEvents() chain.
-  */
-  if (!window.__haccpLocationEditListenerReady) {
-    window.__haccpLocationEditListenerReady = true;
-
-    document.addEventListener(
-      'click',
-      event => {
-        const button =
-          event.target?.closest?.('[data-edit-location]');
-
-        if (!button) return;
-
-        event.preventDefault();
-        event.stopImmediatePropagation();
-
-        const locationId =
-          button.dataset.editLocation;
-
-        if (!locationId) {
-          console.error(
-            '[Location Edit] Missing location ID.'
-          );
-          return;
-        }
-
-        try {
-          editLocation(locationId);
-
-          const form =
-            document.getElementById('locationForm');
-
-          const panel =
-            form?.closest('details');
-
-          if (panel) {
-            panel.open = true;
-          }
-
-          requestAnimationFrame(() => {
-            form?.scrollIntoView({
-              behavior: 'smooth',
-              block: 'start'
-            });
-
-            setTimeout(() => {
-              document
-                .getElementById('locationName')
-                ?.focus();
-            }, 300);
-          });
-
-        } catch (error) {
-          console.error(
-            '[Location Edit]',
-            error
-          );
-        }
-      },
-      true
-    );
-  }
-
-
 
   async function archiveLocation(id) {
     const used=state.equipment.filter(e=>e.location_id===id && e.active); if(used.length){toast(`Archive or move ${used.length} active equipment unit(s) first.`,'error');return;}

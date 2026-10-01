@@ -1,0 +1,124 @@
+(() => {
+  "use strict";
+
+  const cfg = window.HACCP_CONFIG || {};
+  const initialHashParams = new URLSearchParams(
+    window.location.hash.replace(/^#/, ""),
+  );
+  const initialQueryParams = new URLSearchParams(window.location.search);
+  const initialAuthType =
+    initialHashParams.get("type") || initialQueryParams.get("type") || "";
+  const publicKey = cfg.SUPABASE_PUBLISHABLE_KEY || cfg.SUPABASE_ANON_KEY;
+  const hasSupabaseConfig = !!(cfg.SUPABASE_URL && publicKey);
+  const supabaseRuntimeReady = !!window.supabase?.createClient;
+  const configured = hasSupabaseConfig && supabaseRuntimeReady;
+  const db =
+    configured && window.supabase
+      ? window.supabase.createClient(cfg.SUPABASE_URL, publicKey)
+      : null;
+
+  function authRuntimeMessage() {
+    if (!hasSupabaseConfig) {
+      return "Connect Supabase first: open config.js and add your Project URL and publishable key.";
+    }
+    if (!supabaseRuntimeReady) {
+      return "Supabase runtime did not load. Rebuild the local mobile runtime and sync Android.";
+    }
+    return "";
+  }
+
+  let state = {
+    user: null,
+    profile: null,
+    membership: null,
+    kitchen: null,
+    locations: [],
+    equipment: [],
+    limits: [],
+    members: [],
+    property: null,
+    processLimits: [],
+    processLimitUsageIds: new Set(),
+    processBatches: [],
+    calibrationDevices: [],
+    calibrationRecords: [],
+    receivingSuppliers: [],
+    receivingStandards: [],
+    receivingRecords: [],
+    receivingPhotoDraft: [],
+    thawingStandards: [],
+    thawingBatches: [],
+    thawingReadings: [],
+    thawingPhotoDraft: [],
+    sanitationStandards: [],
+    sanitationRecords: [],
+    sanitationPhotoDraft: [],
+    sanitationVerifyPhotoDraft: [],
+    allergens: [],
+    allergenProfiles: [],
+    allergenChecks: [],
+    managementSummary: null,
+    managementLiveSummary: null,
+    managementReviews: [],
+    managementCurrentReview: null,
+    notifications: {
+      generated_at: null,
+      total: 0,
+      critical: 0,
+      warning: 0,
+      info: 0,
+      items: [],
+    },
+    notificationFilter: "all",
+    notificationTimer: null,
+    trainingAssessments: [],
+    trainingAssignments: [],
+    trainingAttempts: [],
+    trainingCompetencies: [],
+    trainingSelectedAssessmentId: null,
+    trainingExam: null,
+    currentPage: "dashboard",
+    pendingQuickEquipment: initialQueryParams.get("equipment") || null,
+    pendingQuickSanitation: initialQueryParams.get("sanitation") || null,
+    pendingQuickThawing: initialQueryParams.get("thawing") || null,
+    authActionMode: ["invite", "recovery"].includes(initialAuthType)
+      ? initialAuthType
+      : null,
+    todaySlotLogs: [],
+    reminderTimer: null,
+    processReminderTimer: null,
+    monitoringLocationId:
+      localStorage.getItem("haccpMonitoringLocation") || "all",
+    recordsTab: localStorage.getItem("haccpRecordsTab") || "storage",
+  };
+
+  const roleRank = {
+    staff: 1,
+    chef: 2,
+    supervisor: 3,
+    manager: 4,
+    admin: 5,
+    owner: 6,
+  };
+
+  // Translation merging grouped for clarity
+  Object.assign(translations.en, {
+    "nav.sanitation": "Cleaning & Sanitation",
+    "nav.sanitationSettings": "Sanitation Settings",
+    "records.tab.sanitation": "Sanitation",
+    "nav.allergen": "Allergen Control",
+    "nav.allergenSettings": "Allergen Settings",
+    "records.tab.allergen": "Allergen",
+    // ... allergen keys
+  });
+
+  Object.assign(translations.id, {
+    "nav.sanitation": "Cleaning & Sanitation",
+    "nav.sanitationSettings": "Pengaturan Sanitasi",
+    "records.tab.sanitation": "Sanitasi",
+    "nav.allergen": "Kontrol Alergen",
+    "nav.allergenSettings": "Pengaturan Alergen",
+    "records.tab.allergen": "Alergen",
+    // ... allergen keys
+  });
+})();
