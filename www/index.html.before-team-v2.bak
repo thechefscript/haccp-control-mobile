@@ -71,10 +71,9 @@
       </div>
     </div>
     <div class="card auth-card">
-      <div class="auth-welcome">
-        <div id="authWelcomeEyebrow" class="eyebrow">WELCOME</div>
-        <h2 id="authGreeting">Welcome, good morning</h2>
-        <p id="authGreetingCopy" class="muted">Sign in to continue to your kitchen.</p>
+      <div class="auth-tabs">
+        <button class="tab active" data-auth-tab="signin">Sign in</button>
+        <button class="tab" data-auth-tab="signup">Create account</button>
       </div>
 
       <form id="signInForm" class="auth-form">
@@ -930,50 +929,18 @@
         </section>
 
         <section id="page-team" class="page admin-page">
-          <div class="page-head">
-            <div>
-              <div class="eyebrow">ACCESS</div>
-              <h1>Kitchen Team</h1>
-              <p class="muted">Invite staff by email, assign their kitchen role, and manage access from one place.</p>
-            </div>
-          </div>
-
-          <div class="two-col admin-grid team-management-grid">
+          <div class="page-head"><div><div class="eyebrow">ACCESS</div><h1>Kitchen Team</h1><p class="muted">Staff first create an account, then an Owner or Manager adds their email here.</p></div></div>
+          <div class="two-col admin-grid">
             <article class="card">
-              <div class="section-head">
-                <div><div class="eyebrow">INVITATION</div><h2>Invite Staff</h2></div>
-              </div>
-
+              <h2>Add existing account</h2>
               <form id="memberForm" class="stack-form">
-                <label>Full name<input id="memberName" type="text" autocomplete="name" placeholder="Staff name"></label>
-                <label>Staff email<input id="memberEmail" type="email" autocomplete="email" required placeholder="staff@hotel.com"></label>
-                <label>Role
-                  <select id="memberRole">
-                    <option value="staff">Staff</option>
-                    <option value="chef">Chef</option>
-                    <option value="supervisor">Supervisor</option>
-                    <option value="manager">Manager</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </label>
-                <button id="memberSubmitBtn" class="primary" type="submit">Send Invitation</button>
+                <label>Staff email<input id="memberEmail" type="email" required></label>
+                <label>Role<select id="memberRole"><option value="staff">Staff</option><option value="chef">Chef</option><option value="supervisor">Supervisor</option><option value="manager">Manager</option><option value="admin">Admin</option></select></label>
+                <button class="primary" type="submit">Add to Kitchen</button>
               </form>
-
-              <div class="team-invite-help">
-                <strong>How it works</strong>
-                <span>New users receive an activation email and create their password once. Existing HACCP Control accounts are added immediately.</span>
-              </div>
-
-              <p class="small muted">Owner is protected. Only Owner can grant Admin. Admin can grant Manager or below. Manager can grant Supervisor, Chef or Staff.</p>
+              <p class="small muted">Owner is protected. Admin can be granted by Owner; Managers can grant Supervisor/Chef/Staff access.</p>
             </article>
-
-            <article class="card">
-              <div class="section-head">
-                <div><div class="eyebrow">ACCESS REGISTER</div><h2>Team Members</h2></div>
-                <span id="memberCount" class="pill">0</span>
-              </div>
-              <div id="memberList" class="settings-list team-member-list"></div>
-            </article>
+            <article class="card"><div class="section-head"><h2>Current members</h2><span id="memberCount" class="pill">0</span></div><div id="memberList" class="settings-list"></div></article>
           </div>
         </section>
 

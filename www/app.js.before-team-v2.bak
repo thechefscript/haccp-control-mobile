@@ -148,8 +148,6 @@
     if (state.currentPage === 'allergen-settings' && state.kitchen) loadAllergenSettings();
     if (state.currentPage === 'training' && state.kitchen) loadTraining();
     if (state.currentPage === 'training-settings' && state.kitchen) loadTrainingSettings();
-    updateAuthGreeting();
-    if (state.user && state.kitchen) updateDashboardGreeting();
     if (state.currentPage === 'dashboard' && state.kitchen) loadDashboard();
     if (state.currentPage === 'management' && state.kitchen) loadManagementReview();
     if (state.currentPage === 'notifications' && state.kitchen) loadNotifications(true);
@@ -159,77 +157,6 @@
     return document.getElementById(selectorOrId);
   };
   const $$ = selector => Array.from(document.querySelectorAll(selector));
-
-  // ---------------------------------------------------------------------------
-  // Mobile UX — time-aware greeting
-  // ---------------------------------------------------------------------------
-  function greetingForHour(hour, lowercase = false) {
-    const h = Number(hour);
-    let greeting;
-
-    if (currentLanguage === 'id') {
-      greeting = h < 12 ? 'Selamat pagi' : h < 17 ? 'Selamat siang' : 'Selamat malam';
-    } else {
-      greeting = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-    }
-
-    if (!lowercase) return greeting;
-    return greeting.charAt(0).toLowerCase() + greeting.slice(1);
-  }
-
-  function updateAuthGreeting() {
-    const title = $('authGreeting');
-    const eyebrow = $('authWelcomeEyebrow');
-    const copy = $('authGreetingCopy');
-
-    if (!title) return;
-
-    const hour = new Date().getHours();
-
-    if (currentLanguage === 'id') {
-      if (eyebrow) eyebrow.textContent = 'SELAMAT DATANG';
-      title.textContent = `Selamat datang, ${greetingForHour(hour, true)}`;
-      if (copy) copy.textContent = 'Masuk untuk melanjutkan ke kitchen Anda.';
-    } else {
-      if (eyebrow) eyebrow.textContent = 'WELCOME';
-      title.textContent = `Welcome, ${greetingForHour(hour, true)}`;
-      if (copy) copy.textContent = 'Sign in to continue to your kitchen.';
-    }
-  }
-
-  function currentUserFirstName() {
-    const source = String(
-      state.profile?.full_name ||
-      state.user?.user_metadata?.full_name ||
-      ''
-    ).trim();
-
-    if (source) return source.split(/\s+/)[0];
-
-    const email = String(state.user?.email || state.profile?.email || '').trim();
-    return email ? email.split('@')[0] : '';
-  }
-
-  function updateDashboardGreeting() {
-    const title = $('dashboardTitle');
-    if (!title) return;
-
-    if (!state.user) {
-      title.textContent = currentLanguage === 'id' ? 'Dashboard Dapur' : 'Kitchen Dashboard';
-      return;
-    }
-
-    let hour = new Date().getHours();
-
-    try {
-      if (state.kitchen) hour = kitchenNowParts().hour;
-    } catch (_) {}
-
-    const greeting = greetingForHour(hour);
-    const firstName = currentUserFirstName();
-
-    title.textContent = firstName ? `${greeting}, ${firstName}` : greeting;
-  }
   const esc = value => String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
   const nullableNumber = value => value === '' || value == null ? null : Number(value);
   const fmtDate = date => new Intl.DateTimeFormat('en-GB', { day:'2-digit', month:'short', year:'numeric' }).format(date);
@@ -342,7 +269,6 @@
 
   function showOnly(id) {
     ['authScreen','passwordActionScreen','bootstrapScreen','awaitingScreen','appShell'].forEach(x => $(x).classList.toggle('hidden', x !== id));
-    if (id === 'authScreen') updateAuthGreeting();
   }
 
   async function boot() {
@@ -412,7 +338,7 @@
 
     const { data: memberships, error } = await db
       .from('kitchen_members')
-      .select('kitchen_id,role,active,invited_at,accepted_at,kitchens(id,name,location,timezone,active)')
+      .select('kitchen_id,role,active,kitchens(id,name,location,timezone,active)')
       .eq('user_id', state.user.id)
       .eq('active', true)
       .limit(1);
@@ -432,24 +358,6 @@
 
     state.membership = memberships[0];
     state.kitchen = memberships[0].kitchens;
-
-    if (!state.membership.accepted_at) {
-      try {
-        const { error: acceptError } = await db.rpc(
-          'mark_kitchen_membership_accepted',
-          { p_kitchen_id: state.kitchen.id }
-        );
-
-        if (acceptError) {
-          console.warn('[Team Access Acceptance]', acceptError);
-        } else {
-          state.membership.accepted_at = new Date().toISOString();
-        }
-      } catch (acceptError) {
-        console.warn('[Team Access Acceptance]', acceptError);
-      }
-    }
-
     $('recordDate').value = kitchenDate();
     showOnly('appShell');
     applyRoleUI();
@@ -3295,218 +3203,36 @@
     await loadLimitsAdmin();
   }
 
-  // ---------------------------------------------------------------------------
-  // Team Management v2 — invitation-first onboarding
-  // ---------------------------------------------------------------------------
-  function teamRoleOptions(selectedRole, member) {
-    const callerRole = state.membership?.role || 'staff';
-
-    const roles =
-      callerRole === 'owner'
-        ? ['admin','manager','supervisor','chef','staff']
-        : callerRole === 'admin'
-          ? ['manager','supervisor','chef','staff']
-          : ['supervisor','chef','staff'];
-
-    if (member?.role && !roles.includes(member.role)) roles.unshift(member.role);
-
-    return roles
-      .map(role => `<option value="${esc(role)}" ${role === selectedRole ? 'selected' : ''}>${esc(displayRole(role))}</option>`)
-      .join('');
-  }
-
-  function teamMemberStatus(member) {
-    if (member.accepted_at) {
-      return {
-        key: 'active',
-        label: 'ACTIVE',
-        detail: `Access active · ${fmtDateTime(member.accepted_at)}`
-      };
-    }
-
-    if (member.invited_at) {
-      return {
-        key: 'invited',
-        label: 'INVITED',
-        detail: `Invitation sent · ${fmtDateTime(member.invited_at)}`
-      };
-    }
-
-    return { key: 'active', label: 'ACTIVE', detail: 'Existing account' };
-  }
-
   async function loadTeam() {
     const { data, error } = await db
       .from('kitchen_members')
-      .select('user_id,role,active,created_at,invited_at,accepted_at,profiles!kitchen_members_user_id_fkey(full_name,email)')
+      .select('user_id,role,active,created_at,profiles!kitchen_members_user_id_fkey(full_name,email)')
       .eq('kitchen_id', state.kitchen.id)
       .eq('active', true)
       .order('created_at');
-
-    if (error) {
-      toast(error.message, 'error');
-      return;
-    }
-
+    if (error) { toast(error.message, 'error'); return; }
     state.members = data || [];
     $('memberCount').textContent = state.members.length;
-
-    $('memberList').innerHTML = state.members.length
-      ? state.members.map(member => {
-          const profile = member.profiles || {};
-          const status = teamMemberStatus(member);
-
-          const protectedMember =
-            member.user_id === state.user.id ||
-            member.role === 'owner';
-
-          const management = protectedMember
-            ? `<span class="team-role-label">${esc(displayRole(member.role))}</span>`
-            : `
-              <div class="team-role-control">
-                <select data-member-role-select="${esc(member.user_id)}" aria-label="Role for ${esc(profile.full_name || profile.email || 'team member')}">
-                  ${teamRoleOptions(member.role, member)}
-                </select>
-                <button class="secondary compact-btn" type="button" data-change-member-role="${esc(member.user_id)}">Save Role</button>
-              </div>
-              <button class="ghost danger-text compact-btn" type="button" data-remove-member="${esc(member.user_id)}">Remove Access</button>
-            `;
-
-          return `
-            <article class="team-member-row">
-              <div class="team-member-identity">
-                <div class="team-member-title-line">
-                  <strong>${esc(profile.full_name || profile.email || 'User')}</strong>
-                  <span class="team-access-status ${esc(status.key)}">${esc(status.label)}</span>
-                </div>
-                <small>${esc(profile.email || '')}</small>
-                <span class="team-member-status-copy">${esc(status.detail)}</span>
-              </div>
-              <div class="team-member-actions">${management}</div>
-            </article>
-          `;
-        }).join('')
-      : '<div class="empty">No team members yet.</div>';
+    $('memberList').innerHTML = state.members.length ? state.members.map(m => `<div class="setting-row"><div><strong>${esc(m.profiles?.full_name || m.profiles?.email || 'User')}</strong><small>${esc(m.profiles?.email || '')}</small></div><div class="setting-meta"><strong>${esc(m.role.toUpperCase())}</strong>${m.user_id !== state.user.id && m.role !== 'owner' ? `<br><button class="secondary" data-remove-member="${esc(m.user_id)}">Remove</button>` : ''}</div></div>`).join('') : '<div class="empty">No members.</div>';
   }
 
   async function addMember(event) {
     event.preventDefault();
-
-    const submit = $('memberSubmitBtn');
-    const originalText = submit?.textContent || 'Send Invitation';
-    const email = $('memberEmail').value.trim().toLowerCase();
-    const fullName = $('memberName')?.value.trim() || '';
-    const role = $('memberRole').value;
-
-    if (submit) {
-      submit.disabled = true;
-      submit.textContent = 'Sending…';
-    }
-
-    try {
-      const { data, error } = await db.functions.invoke(
-        'invite-kitchen-member',
-        {
-          body: {
-            kitchen_id: state.kitchen.id,
-            email,
-            full_name: fullName,
-            role
-          }
-        }
-      );
-
-      if (error) {
-        let message = error.message || 'Could not invite staff member.';
-
-        try {
-          if (error.context && typeof error.context.json === 'function') {
-            const responseBody = await error.context.json();
-            if (responseBody?.error) message = responseBody.error;
-          }
-        } catch (_) {}
-
-        toast(message, 'error');
-        return;
-      }
-
-      if (!data?.ok) {
-        toast(data?.error || 'Could not invite staff member.', 'error');
-        return;
-      }
-
-      event.target.reset();
-
-      toast(
-        data.status === 'invited'
-          ? `Invitation sent to ${email}.`
-          : `${email} already has an account and was added to this kitchen.`,
-        'good'
-      );
-
-      await loadTeam();
-
-    } catch (error) {
-      console.error('[Team Invitation]', error);
-      toast(error?.message || 'Could not invite staff member.', 'error');
-
-    } finally {
-      if (submit) {
-        submit.disabled = false;
-        submit.textContent = originalText;
-      }
-    }
-  }
-
-  async function changeMemberRole(userId) {
-    const select = document.querySelector(
-      `[data-member-role-select="${CSS.escape(userId)}"]`
-    );
-    if (!select) return;
-
-    const role = select.value;
-
-    const { error } = await db.rpc(
-      'set_kitchen_member_role',
-      {
-        p_kitchen_id: state.kitchen.id,
-        p_user_id: userId,
-        p_role: role
-      }
-    );
-
-    if (error) {
-      toast(error.message, 'error');
-      await loadTeam();
-      return;
-    }
-
-    toast(`Role updated to ${displayRole(role)}.`, 'good');
+    const { error } = await db.rpc('add_kitchen_member_by_email', {
+      p_kitchen_id: state.kitchen.id,
+      p_email: $('memberEmail').value.trim().toLowerCase(),
+      p_role: $('memberRole').value
+    });
+    if (error) { toast(error.message, 'error'); return; }
+    event.target.reset();
+    toast('Team member added.', 'good');
     await loadTeam();
   }
 
   async function removeMember(userId) {
-    const member = state.members.find(x => x.user_id === userId);
-    const name =
-      member?.profiles?.full_name ||
-      member?.profiles?.email ||
-      'this user';
-
-    if (!confirm(`Remove kitchen access for ${name}?`)) return;
-
-    const { error } = await db.rpc(
-      'deactivate_kitchen_member',
-      {
-        p_kitchen_id: state.kitchen.id,
-        p_user_id: userId
-      }
-    );
-
-    if (error) {
-      toast(error.message, 'error');
-      return;
-    }
-
+    if (!confirm('Remove this user from the kitchen?')) return;
+    const { error } = await db.rpc('deactivate_kitchen_member', { p_kitchen_id: state.kitchen.id, p_user_id: userId });
+    if (error) { toast(error.message, 'error'); return; }
     toast('Kitchen access removed.', 'good');
     await loadTeam();
   }
@@ -4601,7 +4327,7 @@ ${r.result}`);}
 
   function applyDashboardLanguage() {
     const set=(id,en,idText)=>{const el=$(id);if(el)el.textContent=managementCopy(en,idText);};
-    set('dashboardEyebrow','TODAY','HARI INI'); updateDashboardGreeting();
+    set('dashboardEyebrow','TODAY','HARI INI'); set('dashboardTitle','Kitchen Dashboard','Dashboard Dapur');
     set('dashboardPrimaryAction','+ Storage Temperature','+ Suhu Penyimpanan'); set('dashboardManagementBtn','Management Review','Tinjauan Manajemen');
     set('dashChecksLabel','Checks','Pemeriksaan'); set('dashChecksSmall','today','hari ini'); set('dashPassLabel','Passed','Lulus'); set('dashPassSmall','within limits','dalam batas');
     set('dashOutLabel','Deviations','Deviasi'); set('dashOutSmall','out of limit','di luar batas'); set('dashActionsLabel','Open actions','Tindakan terbuka'); set('dashActionsSmall','need completion','perlu diselesaikan');
@@ -4816,11 +4542,6 @@ ${r.result}`);}
     try{const html=await buildManagementReportHtml(),start=$('managementStart').value,end=$('managementEnd').value,filename=`HACCP-Management-Review-${String(state.kitchen.name||'Kitchen').replace(/[^a-z0-9]+/gi,'-')}-${start}-${end}.pdf`;if(mode==='view'){showRecordPreview(`${managementCopy('HACCP Management Review','Tinjauan Manajemen HACCP')} · ${start} → ${end}`,html);return;}writeReportWindow(popup,mode==='download'?pdfDownloadDocument(html,filename):html);if(mode==='print')popup.addEventListener('load',()=>setTimeout(()=>popup.print(),220),{once:true});}catch(error){if(popup&&!popup.closed)popup.close();toast(error.message,'error');}
   }
   function bindEvents() {
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) return;
-      updateAuthGreeting();
-      if (state.user && state.kitchen) updateDashboardGreeting();
-    });
     $$('[data-auth-tab]').forEach(btn => btn.addEventListener('click', () => {
       $$('[data-auth-tab]').forEach(x => x.classList.toggle('active', x === btn));
       $('signInForm').classList.toggle('hidden', btn.dataset.authTab !== 'signin');
@@ -4831,13 +4552,7 @@ ${r.result}`);}
     $('signUpForm').addEventListener('submit', signUp);
     $('signupSuccessOk').addEventListener('click', () => {
       $('signupSuccessDialog').close();
-      const signInTab = document.querySelector('[data-auth-tab="signin"]');
-      if (signInTab) signInTab.click();
-      else {
-        $('signInForm').classList.remove('hidden');
-        $('signUpForm').classList.add('hidden');
-        updateAuthGreeting();
-      }
+      document.querySelector('[data-auth-tab="signin"]').click();
     });
     $('forgotPasswordBtn').addEventListener('click', () => {
       $('forgotPasswordEmail').value = $('signInEmail').value.trim();
@@ -4999,12 +4714,7 @@ ${r.result}`);}
     $('limitForm').addEventListener('submit', addLimit);
     $('limitList').addEventListener('click', e => { const b = e.target.closest('[data-deactivate-limit]'); if (b) deactivateLimit(b.dataset.deactivateLimit); });
     $('memberForm').addEventListener('submit', addMember);
-    $('memberList').addEventListener('click', e => {
-      const remove = e.target.closest('[data-remove-member]');
-      const changeRole = e.target.closest('[data-change-member-role]');
-      if (remove) removeMember(remove.dataset.removeMember);
-      if (changeRole) changeMemberRole(changeRole.dataset.changeMemberRole);
-    });
+    $('memberList').addEventListener('click', e => { const b = e.target.closest('[data-remove-member]'); if (b) removeMember(b.dataset.removeMember); });
     $('newProcessBatchBtn')?.addEventListener('click',()=>{populateProcessBatchOptions(); $('processBatchDialog').showModal();});
     $('closeProcessBatch')?.addEventListener('click',()=>$('processBatchDialog').close()); $('cancelProcessBatch')?.addEventListener('click',()=>$('processBatchDialog').close()); $('processBatchForm')?.addEventListener('submit',createProcessBatch);
     $('processStartType')?.addEventListener('change',e=>fillProcessLimitSelect('processStartLimit',e.target.value));
