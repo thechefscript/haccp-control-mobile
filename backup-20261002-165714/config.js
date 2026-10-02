@@ -1,0 +1,18 @@
+// Browser-safe configuration.
+// Use your Supabase Project URL and PUBLISHABLE key (sb_publishable_...).
+// NEVER put a Supabase secret key or legacy service_role key in this file.
+
+window.HACCP_CONFIG = {
+  SUPABASE_URL: "https://huwmchkxsqlbaoqvqctq.supabase.co",
+  SUPABASE_PUBLISHABLE_KEY: "sb_publishable_x21tY7yaAUK_sPiE_h-P5g_hz43uGrT",
+
+  // Optional legacy fallback during Supabase migration:
+  SUPABASE_ANON_KEY: "",
+
+  // Public web address of this HACCP app.
+  // Used for Equipment QR labels.
+ PUBLIC_APP_URL: "https://fugo-haccp.pnbrmsh.workers.dev/",
+
+  // Set false after onboarding if you disable public signups in Supabase.
+  ALLOW_SIGNUP_UI: false
+};

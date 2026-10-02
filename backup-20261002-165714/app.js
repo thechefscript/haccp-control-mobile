@@ -341,7 +341,7 @@
   }
 
   function showOnly(id) {
-    ['startupScreen','authScreen','passwordActionScreen','bootstrapScreen','awaitingScreen','appShell'].forEach(x => $(x).classList.toggle('hidden', x !== id));
+    ['authScreen','passwordActionScreen','bootstrapScreen','awaitingScreen','appShell'].forEach(x => $(x).classList.toggle('hidden', x !== id));
     if (id === 'authScreen') updateAuthGreeting();
   }
 
@@ -357,7 +357,6 @@
 
     bindEvents();
     applyLanguage();
-    showOnly('startupScreen');
 
     if (!configured) {
       showOnly('authScreen');
@@ -405,69 +404,6 @@
     state.locations = []; state.equipment = []; state.limits = []; state.members = []; state.property = null; state.processLimits = []; state.processLimitUsageIds = new Set(); state.processBatches = []; state.calibrationDevices = []; state.calibrationRecords = []; state.receivingSuppliers = []; state.receivingStandards = []; state.receivingRecords = []; state.sanitationStandards = []; state.sanitationRecords = []; state.sanitationPhotoDraft = []; state.sanitationVerifyPhotoDraft = []; state.allergens = []; state.allergenProfiles = []; state.allergenChecks = []; state.managementSummary = null; state.managementLiveSummary = null; state.managementReviews = []; state.managementCurrentReview = null; state.notifications = { generated_at:null,total:0,critical:0,warning:0,info:0,items:[] }; state.notificationFilter='all'; if(state.notificationTimer){clearInterval(state.notificationTimer);state.notificationTimer=null;}
   }
 
-  function pendingQuickPage() {
-    if (state.pendingQuickThawing) return 'thawing';
-    if (state.pendingQuickSanitation) return 'sanitation';
-    if (state.pendingQuickEquipment) return 'check';
-    return null;
-  }
-
-  function clearQuickRouteFromUrl() {
-    try {
-      const url = new URL(window.location.href);
-      ['equipment','sanitation','thawing'].forEach(key => url.searchParams.delete(key));
-      const next = `${url.pathname}${url.search}${url.hash}`;
-      window.history?.replaceState?.({}, document.title, next || url.pathname);
-    } catch (_) {}
-  }
-
-  async function finishPendingQuickRoute() {
-    if (state.pendingQuickThawing) {
-      const id = state.pendingQuickThawing;
-      state.pendingQuickThawing = null;
-      if (!(state.thawingStandards || []).some(x => x.id === id)) {
-        toast('Thawing QR is not active in this kitchen.', 'error');
-        clearQuickRouteFromUrl();
-        return;
-      }
-      await openThawingBatch();
-      $('thawingBatchStandard').value = id;
-      updateThawingBatchPreview();
-      clearQuickRouteFromUrl();
-      return;
-    }
-
-    if (state.pendingQuickSanitation) {
-      const id = state.pendingQuickSanitation;
-      state.pendingQuickSanitation = null;
-      if (!(state.sanitationStandards || []).some(x => x.id === id)) {
-        toast('Sanitation QR is not active in this kitchen.', 'error');
-        clearQuickRouteFromUrl();
-        return;
-      }
-      openSanitationRecord(id);
-      clearQuickRouteFromUrl();
-      return;
-    }
-
-    if (state.pendingQuickEquipment) {
-      const id = state.pendingQuickEquipment;
-      state.pendingQuickEquipment = null;
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      const card = document.querySelector(`[data-monitor-equipment="${CSS.escape(id)}"]`);
-      if (!card) {
-        toast('Equipment QR is not active in this kitchen.', 'error');
-        clearQuickRouteFromUrl();
-        return;
-      }
-      card.scrollIntoView({ behavior: 'auto', block: 'center' });
-      card.classList.add('qr-target-flash');
-      card.querySelector('[data-monitor-temp]')?.focus({ preventScroll: true });
-      setTimeout(() => card.classList.remove('qr-target-flash'), 2000);
-      clearQuickRouteFromUrl();
-    }
-  }
-
   async function handleSession(session) {
     state.user = session.user;
     const { data: profile, error: profileError } = await db.from('profiles').select('*').eq('id', state.user.id).maybeSingle();
@@ -483,7 +419,6 @@
 
     if (error) {
       console.error(error);
-      showOnly('authScreen');
       toast('Could not load kitchen access.', 'error');
       return;
     }
@@ -504,40 +439,50 @@
           'mark_kitchen_membership_accepted',
           { p_kitchen_id: state.kitchen.id }
         );
-        if (acceptError) console.warn('[Team Access Acceptance]', acceptError);
-        else state.membership.accepted_at = new Date().toISOString();
+
+        if (acceptError) {
+          console.warn('[Team Access Acceptance]', acceptError);
+        } else {
+          state.membership.accepted_at = new Date().toISOString();
+        }
       } catch (acceptError) {
         console.warn('[Team Access Acceptance]', acceptError);
       }
     }
 
     $('recordDate').value = kitchenDate();
+    showOnly('appShell');
     applyRoleUI();
-
-    // Keep the startup screen visible until the exact QR destination is ready.
     await loadConfiguration();
     await loadTodaySlotLogs();
     startMonitoringReminderClock();
     startProcessReminderClock();
     await loadNotifications(false);
     startNotificationClock();
-
-    const quickPage = pendingQuickPage();
     if (state.pendingQuickEquipment) {
       const quickEquipment = state.equipment.find(e => e.id === state.pendingQuickEquipment);
-      if (quickEquipment) {
-        state.monitoringLocationId = quickEquipment.location_id || '__other__';
-        localStorage.setItem('haccpMonitoringLocation', state.monitoringLocationId);
-      }
+      if (quickEquipment) state.monitoringLocationId = quickEquipment.location_id || '__other__';
     }
-
-    await navigate(quickPage || 'dashboard');
-    showOnly('appShell');
-
-    if (quickPage) {
-      await finishPendingQuickRoute();
-    } else {
-      await maybeShowOverdueReminder();
+    await navigate(state.pendingQuickThawing ? 'thawing' : state.pendingQuickSanitation ? 'sanitation' : state.pendingQuickEquipment ? 'check' : 'dashboard');
+    await maybeShowOverdueReminder();
+    if (state.pendingQuickThawing) {
+      const quickThawing = state.pendingQuickThawing;
+      state.pendingQuickThawing = null;
+      requestAnimationFrame(async () => { try { await fetchThawingStandards(false); if ((state.thawingStandards || []).some(s => s.id === quickThawing)) { await openThawingBatch(); $('thawingBatchStandard').value=quickThawing; updateThawingBatchPreview(); } } catch(e){ console.error(e); } });
+    } else if (state.pendingQuickSanitation) {
+      const quickSanitation = state.pendingQuickSanitation;
+      state.pendingQuickSanitation = null;
+      requestAnimationFrame(() => { if ((state.sanitationStandards || []).some(s => s.id === quickSanitation)) openSanitationRecord(quickSanitation); });
+    } else if (state.pendingQuickEquipment) {
+      const quickId = state.pendingQuickEquipment;
+      state.pendingQuickEquipment = null;
+      requestAnimationFrame(() => {
+        const card = document.querySelector(`[data-monitor-equipment="${CSS.escape(quickId)}"]`);
+        if (card) {
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          card.querySelector('[data-monitor-temp]')?.focus();
+        }
+      });
     }
   }
 
@@ -1108,9 +1053,9 @@
     const set=(id,en,idText)=>{const el=$(id);if(el)el.textContent=thawingCopy(en,idText);};
     set('navThawingLabel','Thawing Control','Kontrol Pencairan'); set('navThawingSettingsLabel','Thawing Standards','Standar Pencairan');
     set('thawingEyebrow','THAWING / DEFROST CONTROL','KONTROL PENCAIRAN / DEFROST'); set('thawingTitle','Thawing Control','Kontrol Pencairan');
-    set('thawingDescription','Control frozen-food thawing with FDA method-based limits, property monitoring and corrective actions.','Kendalikan pencairan makanan beku dengan batas berbasis metode FDA, monitoring properti, dan tindakan koreksi.');
+    set('thawingDescription','Control frozen-food thawing with approved methods, repeated temperature checks and corrective actions.','Kendalikan pencairan makanan beku dengan metode yang disetujui, pemeriksaan suhu berulang, dan tindakan koreksi.');
     set('thawingActiveLabel','Active','Aktif'); set('thawingActiveSmall','thawing batches','batch pencairan'); set('thawingDueLabel','Check due','Pemeriksaan jatuh tempo'); set('thawingDueSmall','needs temperature check','perlu pemeriksaan suhu'); set('thawingOutLabel','Deviations','Deviasi'); set('thawingOutSmall','open OUT readings','pembacaan OUT terbuka'); set('thawingReadyLabel','Ready today','Siap hari ini'); set('thawingReadySmall','completed for use','selesai untuk digunakan');
-    set('thawingGuidanceTitle','Use only an approved thawing method and apply the control for that method.','Gunakan hanya metode pencairan yang disetujui dan terapkan kontrol sesuai metode tersebut.'); set('thawingGuidanceBody','Refrigeration is controlled at ≤5°C. Running water is ≤21°C with food-category controls. Microwave thawing goes immediately to cooking. Operational check intervals are property SOP settings, not universal FDA timers.','Refrigerasi dikontrol pada ≤5°C. Air mengalir ≤21°C dengan kontrol berdasarkan kategori makanan. Pencairan microwave langsung dilanjutkan ke proses memasak. Interval pemeriksaan operasional adalah pengaturan SOP properti, bukan timer universal FDA.'); set('manageThawingStandards','Manage Thawing Standards','Kelola Standar Pencairan'); set('recordsTabThawing','Thawing','Pencairan'); set('thawingRecordsTitle','Thawing / Defrost Records','Catatan Pencairan / Defrost');
+    set('thawingGuidanceTitle','Use only a property-approved thawing method.','Gunakan hanya metode pencairan yang disetujui properti.'); set('thawingGuidanceBody','Monitoring interval, maximum temperature and duration come from the selected standard. An OUT reading requires corrective action.','Interval monitoring, suhu maksimum, dan durasi berasal dari standar yang dipilih. Pembacaan OUT memerlukan tindakan koreksi.'); set('manageThawingStandards','Manage Thawing Standards','Kelola Standar Pencairan'); set('recordsTabThawing','Thawing','Pencairan'); set('thawingRecordsTitle','Thawing / Defrost Records','Catatan Pencairan / Defrost');
   }
   function thawingMethodLabel(v){ return ({refrigeration:thawingCopy('Refrigeration','Refrigerasi'),running_water:thawingCopy('Running cold water','Air dingin mengalir'),microwave:thawingCopy('Microwave → immediate cooking','Microwave → segera dimasak'),cook_from_frozen:thawingCopy('Cook from frozen','Masak dari beku'),other:thawingCopy('Other approved method','Metode lain yang disetujui')})[v]||v||'—'; }
   function inputDateTimeValue(d=new Date()){ const x=new Date(d.getTime()-d.getTimezoneOffset()*60000); return x.toISOString().slice(0,16); }
@@ -1118,130 +1063,29 @@
   function latestThawReading(batch){ const arr=batch.readings||[]; return [...arr].sort((a,b)=>new Date(b.recorded_at)-new Date(a.recorded_at))[0]||null; }
   function thawingDueAt(batch){ const i=Number(batch.monitoring_interval_minutes_snapshot||0); if(!i)return null; const last=latestThawReading(batch); return new Date(new Date(last?.recorded_at||batch.started_at).getTime()+i*60000); }
   function thawingDueState(batch){ const due=thawingDueAt(batch); if(!due)return 'none'; const now=Date.now(), grace=Number(batch.overdue_grace_minutes_snapshot||30)*60000; if(now>due.getTime()+grace)return 'overdue'; if(now>=due.getTime()-Number(batch.reminder_minutes_snapshot||15)*60000)return 'due'; return 'ok'; }
-  function thawingLimitText(s){
-    if(!s) return thawingCopy('Property-approved procedure','Prosedur yang disetujui properti');
-    if(s.method==='refrigeration') return `Food ≤ ${s.max_temperature ?? 5}${s.unit||'°C'}`;
-    if(s.method==='running_water') return `Water ≤ ${s.water_max_temperature ?? 21}°C · ${thawingCopy('food-category control','kontrol kategori makanan')}`;
-    if(s.method==='microwave') return thawingCopy('Immediate transfer to cooking','Segera transfer ke proses memasak');
-    if(s.method==='cook_from_frozen') return thawingCopy('Approved cooking process','Proses memasak yang disetujui');
-    return s.max_temperature!=null?`≤ ${s.max_temperature}${s.unit||'°C'}`:thawingCopy('Property-approved procedure','Prosedur yang disetujui properti');
-  }
+  function thawingLimitText(s){ return s?.max_temperature!=null?`≤ ${s.max_temperature}${s.unit||'°C'}`:thawingCopy('Property-approved procedure','Prosedur yang disetujui properti'); }
 
   async function fetchThawingStandards(includeInactive=false){ let q=db.from('thawing_standards').select('*').eq('kitchen_id',state.kitchen.id).order('code'); if(!includeInactive)q=q.eq('active',true); const {data,error}=await q; if(error)throw error; state.thawingStandards=data||[]; return state.thawingStandards; }
   async function fetchThawingBatches(activeOnly=false){
-    let q=db.from('thawing_batches').select(`*,creator:profiles!thawing_batches_created_by_fkey(full_name,email),completer:profiles!thawing_batches_completed_by_fkey(full_name,email),verifier:profiles!thawing_batches_verified_by_fkey(full_name,email),source_equipment:equipment!thawing_batches_source_equipment_id_fkey(code,name),thaw_equipment:equipment!thawing_batches_thaw_equipment_id_fkey(code,name),evidence:thawing_evidence(id,reading_id,storage_path,original_name,photo_kind,uploaded_at),readings:thawing_readings(id,actual_temperature,unit,water_temperature,water_unit,exposure_minutes_snapshot,status,limit_text_snapshot,notes,recorded_at,recordedBy:profiles!thawing_readings_recorded_by_fkey(full_name,email),actions:thawing_corrective_actions(id,immediate_action,product_disposition,followup_temperature,notes,created_at,verified_at,verification_notes,createdBy:profiles!thawing_corrective_actions_created_by_fkey(full_name,email),verifier:profiles!thawing_corrective_actions_verified_by_fkey(full_name,email)))`).eq('kitchen_id',state.kitchen.id).order('started_at',{ascending:false}).limit(150);
+    let q=db.from('thawing_batches').select(`*,creator:profiles!thawing_batches_created_by_fkey(full_name,email),completer:profiles!thawing_batches_completed_by_fkey(full_name,email),verifier:profiles!thawing_batches_verified_by_fkey(full_name,email),source_equipment:equipment!thawing_batches_source_equipment_id_fkey(code,name),thaw_equipment:equipment!thawing_batches_thaw_equipment_id_fkey(code,name),evidence:thawing_evidence(id,reading_id,storage_path,original_name,photo_kind,uploaded_at),readings:thawing_readings(id,actual_temperature,unit,status,limit_text_snapshot,notes,recorded_at,recordedBy:profiles!thawing_readings_recorded_by_fkey(full_name,email),actions:thawing_corrective_actions(id,immediate_action,product_disposition,followup_temperature,notes,created_at,verified_at,verification_notes,createdBy:profiles!thawing_corrective_actions_created_by_fkey(full_name,email),verifier:profiles!thawing_corrective_actions_verified_by_fkey(full_name,email)))`).eq('kitchen_id',state.kitchen.id).order('started_at',{ascending:false}).limit(150);
     if(activeOnly)q=q.eq('status','active'); const {data,error}=await q; if(error)throw error; state.thawingBatches=data||[]; return state.thawingBatches;
   }
   function thawingActionForReading(r){ const a=r?.actions; return Array.isArray(a)?a[0]||null:a||null; }
-  function thawingExposureMinutes(b){
-    const saved=Number(b?.exposure_above_5_minutes||0);
-    if(!b?.exposure_above_5_started_at) return saved;
-    return saved + Math.max(0,Math.floor((Date.now()-new Date(b.exposure_above_5_started_at).getTime())/60000));
-  }
-
   function renderThawingBatchCard(b){
-    const latest=latestThawReading(b), due=thawingDueAt(b), dueState=thawingDueState(b);
-    const out=(b.readings||[]).filter(r=>r.status==='OUT'&&!thawingActionForReading(r)).length;
-    const awaiting=(b.readings||[]).filter(r=>{const a=thawingActionForReading(r);return a&&!a.verified_at;}).length;
-    const exposure=thawingExposureMinutes(b);
-    const needsReading=!['microwave','cook_from_frozen'].includes(b.method_snapshot);
-    const canCookingHandoff=['microwave','cook_from_frozen'].includes(b.method_snapshot) || (b.method_snapshot==='running_water'&&b.food_category==='raw_animal'&&Number(latest?.actual_temperature)>5);
-    const showRopConfirm=b.rop_fish&&b.method_snapshot==='running_water'&&!b.rop_package_removed_at;
-    const basis=b.regulatory_basis_snapshot?`<span class="thawing-regulatory-basis">${esc(b.regulatory_basis_snapshot)}</span>`:'';
-    const methodControl=b.method_snapshot==='refrigeration'
-      ? `${thawingCopy('Food maintained','Makanan dipertahankan')} ≤ ${esc(b.max_temperature_snapshot ?? 5)}${esc(b.unit_snapshot||'°C')}`
-      : b.method_snapshot==='running_water'
-        ? `${thawingCopy('Running water','Air mengalir')} ≤ ${esc(b.water_max_temperature_snapshot ?? 21)}°C`
-        : b.method_snapshot==='microwave'
-          ? thawingCopy('Immediate transfer to conventional cooking','Segera transfer ke proses memasak konvensional')
-          : b.method_snapshot==='cook_from_frozen'
-            ? thawingCopy('Continue under approved cooking control','Lanjutkan dengan kontrol proses memasak yang disetujui')
-            : (b.max_temperature_snapshot!=null?`≤ ${esc(b.max_temperature_snapshot)}${esc(b.unit_snapshot)}`:thawingCopy('Approved procedure','Prosedur disetujui'));
-
+    const latest=latestThawReading(b), due=thawingDueAt(b), dueState=thawingDueState(b); const out=(b.readings||[]).filter(r=>r.status==='OUT'&&!thawingActionForReading(r)).length; const awaiting=(b.readings||[]).filter(r=>{const a=thawingActionForReading(r);return a&&!a.verified_at;}).length;
     return `<article class="card thawing-batch-card ${dueState==='overdue'?'overdue':''}"><div class="section-head"><div><div class="eyebrow">${esc(b.standard_code_snapshot)} · ${esc(thawingMethodLabel(b.method_snapshot))}</div><h2>${esc(b.product_name)}${b.batch_reference?` · ${esc(b.batch_reference)}`:''}</h2><p class="muted">${esc(b.quantity??'')} ${esc(b.quantity_unit||'')} ${b.intended_use?`· ${esc(b.intended_use)}`:''}</p></div><span class="status-pill ${b.status==='active'?'pending':'pass'}">${esc(String(b.status).toUpperCase())}</span></div>
-      <div class="thawing-meta-grid"><span><b>${thawingCopy('Started','Mulai')}</b>${fmtDateTime(b.started_at)}</span><span><b>${thawingCopy('Location','Lokasi')}</b>${esc(b.thaw_location||b.thaw_equipment?.name||'—')}</span><span><b>${thawingCopy('Method control','Kontrol metode')}</b>${methodControl}${basis}</span><span><b>${thawingCopy('Latest','Terakhir')}</b>${latest?`${esc(latest.actual_temperature)}${esc(latest.unit)} · ${esc(latest.status)}${latest.water_temperature!=null?`<br>${thawingCopy('Water','Air')} ${esc(latest.water_temperature)}${esc(latest.water_unit||'°C')}`:''}`:'—'}</span></div>
-      ${b.method_snapshot==='running_water'&&b.food_category==='raw_animal'?`<div class="verification-strip ${exposure>=180?'warning':''}"><div class="thawing-exposure-meter"><strong>${thawingCopy('Tracked exposure above 5°C','Paparan tercatat di atas 5°C')}: ${exposure} / 240 min</strong><span>${thawingCopy('FDA control is cumulative time above 5°C, not total thawing duration.','Kontrol FDA adalah waktu kumulatif di atas 5°C, bukan total durasi pencairan.')}</span></div></div>`:''}
-      ${b.status==='active'?`<div class="thawing-due ${dueState}">${due?`${thawingCopy('Next property operational check','Pemeriksaan operasional properti berikutnya')}: ${fmtDateTime(due)} · ${dueState==='overdue'?thawingCopy('OVERDUE','TERLAMBAT'):dueState==='due'?thawingCopy('DUE SOON','SEGERA JATUH TEMPO'):thawingCopy('On schedule','Sesuai jadwal')}`:thawingCopy('No recurring operational check configured for this method.','Tidak ada pemeriksaan operasional berulang yang dikonfigurasi untuk metode ini.')}${b.expected_complete_at?`<br>${thawingCopy('Operational expected completion','Perkiraan selesai operasional')}: ${fmtDateTime(b.expected_complete_at)}`:''}</div>`:''}
+      <div class="thawing-meta-grid"><span><b>${thawingCopy('Started','Mulai')}</b>${fmtDateTime(b.started_at)}</span><span><b>${thawingCopy('Location','Lokasi')}</b>${esc(b.thaw_location||b.thaw_equipment?.name||'—')}</span><span><b>${thawingCopy('Limit','Batas')}</b>${esc(b.max_temperature_snapshot!=null?`≤ ${b.max_temperature_snapshot}${b.unit_snapshot}`:'Procedure based')}</span><span><b>${thawingCopy('Latest','Terakhir')}</b>${latest?`${esc(latest.actual_temperature)}${esc(latest.unit)} · ${esc(latest.status)}`:'—'}</span></div>
+      ${b.status==='active'?`<div class="thawing-due ${dueState}">${due?`${thawingCopy('Next check','Pemeriksaan berikutnya')}: ${fmtDateTime(due)} · ${dueState==='overdue'?thawingCopy('OVERDUE','TERLAMBAT'):dueState==='due'?thawingCopy('DUE SOON','SEGERA JATUH TEMPO'):thawingCopy('On schedule','Sesuai jadwal')}`:thawingCopy('No recurring interval configured.','Tidak ada interval berulang yang dikonfigurasi.')}${b.expected_complete_at?`<br>${thawingCopy('Expected completion','Perkiraan selesai')}: ${fmtDateTime(b.expected_complete_at)}`:''}</div>`:''}
       ${(out||awaiting)?`<div class="verification-strip warning">${out?`${out} ${thawingCopy('reading(s) need corrective action','pembacaan perlu tindakan koreksi')}`:''}${out&&awaiting?' · ':''}${awaiting?`${awaiting} ${thawingCopy('action(s) await verification','tindakan menunggu verifikasi')}`:''}</div>`:''}
-      <div class="card-actions">${b.status==='active'&&needsReading?`<button class="primary" type="button" data-thaw-reading="${esc(b.id)}">${thawingCopy('Record Control Check','Catat Pemeriksaan Kontrol')}</button>`:''}${b.status==='active'&&showRopConfirm?`<button class="secondary" type="button" data-thaw-rop-removed="${esc(b.id)}">${thawingCopy('Confirm Package Removed','Konfirmasi Kemasan Dilepas')}</button>`:''}${b.status==='active'&&canCookingHandoff&&!b.immediate_cooking_confirmed_at?`<button class="secondary" type="button" data-thaw-cooking-handoff="${esc(b.id)}">${thawingCopy('Confirm Transfer to Cooking','Konfirmasi Transfer ke Memasak')}</button>`:''}${b.status==='active'?`<button class="secondary" type="button" data-thaw-complete="${esc(b.id)}">${thawingCopy('Complete / Disposition','Selesaikan / Disposisi')}</button>`:''}${(b.readings||[]).some(r=>r.status==='OUT')?`<button class="secondary" type="button" data-thaw-actions="${esc(b.id)}">${thawingCopy('View Deviations','Lihat Deviasi')}</button>`:''}${(b.evidence||[]).length?`<button class="secondary" type="button" data-thaw-evidence="${esc(b.id)}">${thawingCopy('Photos','Foto')} · ${(b.evidence||[]).length}</button>`:''}</div></article>`;
+      <div class="card-actions">${b.status==='active'?`<button class="primary" type="button" data-thaw-reading="${esc(b.id)}">${thawingCopy('Record Temperature','Catat Suhu')}</button><button class="secondary" type="button" data-thaw-complete="${esc(b.id)}">${thawingCopy('Complete / Disposition','Selesaikan / Disposisi')}</button>`:''}${(b.readings||[]).some(r=>r.status==='OUT')?`<button class="secondary" type="button" data-thaw-actions="${esc(b.id)}">${thawingCopy('View Deviations','Lihat Deviasi')}</button>`:''}${(b.evidence||[]).length?`<button class="secondary" type="button" data-thaw-evidence="${esc(b.id)}">${thawingCopy('Photos','Foto')} · ${(b.evidence||[]).length}</button>`:''}</div></article>`;
   }
   async function loadThawing(){
     applyThawingLanguage(); try{ await Promise.all([fetchThawingStandards(false),fetchThawingBatches(false)]); const active=state.thawingBatches.filter(b=>b.status==='active'); const due=active.filter(b=>['due','overdue'].includes(thawingDueState(b))).length; const openOut=active.reduce((n,b)=>n+(b.readings||[]).filter(r=>r.status==='OUT'&&!thawingActionForReading(r)).length,0); const today=kitchenDate(); const ready=state.thawingBatches.filter(b=>b.status==='ready'&&String(b.completed_at||'').slice(0,10)===today).length; $('thawingActiveCount').textContent=active.length; $('thawingDueCount').textContent=due; $('thawingOutCount').textContent=openOut; $('thawingReadyCount').textContent=ready; $('navThawingBadge').textContent=due+openOut; $('navThawingBadge').classList.toggle('hidden',due+openOut===0); $('thawingBatchList').innerHTML=active.length?active.map(renderThawingBatchCard).join(''):`<article class="card empty">${thawingCopy('No active thawing batches.','Tidak ada batch pencairan aktif.')}</article>`; }catch(e){toast(e.message||'Could not load thawing control.','error');}
   }
-  function fillThawingBatchOptions(){
-    $('thawingBatchStandard').innerHTML=state.thawingStandards.map(s=>`<option value="${esc(s.id)}">${esc(s.code)} — ${esc(s.name)}</option>`).join('');
-    const eq=(state.equipment||[]).filter(e=>e.active!==false);
-    const opts='<option value="">Not specified</option>'+eq.map(e=>`<option value="${esc(e.id)}">${esc(e.code)} — ${esc(e.name)}</option>`).join('');
-    $('thawingSourceEquipment').innerHTML=opts;
-    $('thawingTargetEquipment').innerHTML=opts;
-    updateThawingBatchPreview();
-  }
-
-  function updateThawingBatchPreview(){
-    const s=thawingStandardById($('thawingBatchStandard')?.value);
-    if(!s)return;
-    const isWater=s.method==='running_water';
-    const isImmediate=['microwave','cook_from_frozen'].includes(s.method)||!!s.immediate_cooking_required;
-    $('thawingRunningWaterFlowWrap')?.classList.toggle('hidden',!isWater);
-    $('thawingRunningWaterFlow').required=isWater;
-    const rop=$('thawingRopFish')?.checked;
-    $('thawingRopRemovedWrap')?.classList.toggle('hidden',!rop||!['refrigeration','running_water'].includes(s.method));
-    if(rop&&s.method==='refrigeration') $('thawingRopRemoved').required=true; else $('thawingRopRemoved').required=false;
-    const check=s.monitoring_interval_minutes?` · ${s.monitoring_interval_minutes} min ${thawingCopy('property check','pemeriksaan properti')}`:'';
-    const duration=s.maximum_duration_minutes?` · ${thawingCopy('property max','maks properti')} ${s.maximum_duration_minutes} min`:'';
-    const basis=s.regulatory_basis?`<br><span class="thawing-regulatory-basis">${esc(s.regulatory_basis)}</span>`:'';
-    $('thawingBatchStandardPreview').innerHTML=`<b>${esc(s.code)} — ${esc(s.name)}</b><br>${esc(thawingMethodLabel(s.method))} · ${esc(thawingLimitText(s))}${check}${duration}${basis}${isImmediate?`<br><b>${thawingCopy('Immediate cooking handoff required.','Transfer langsung ke proses memasak diperlukan.')}</b>`:''}`;
-    if(s.maximum_duration_minutes&&$('thawingStartedAt').value&&!$('thawingExpectedAt').value){
-      const d=new Date($('thawingStartedAt').value); d.setMinutes(d.getMinutes()+Number(s.maximum_duration_minutes)); $('thawingExpectedAt').value=inputDateTimeValue(d);
-    }
-  }
-
-  async function openThawingBatch(){
-    if(!state.thawingStandards.length)await fetchThawingStandards(false);
-    if(!state.thawingStandards.length){toast(thawingCopy('Create an active thawing standard first.','Buat standar pencairan aktif terlebih dahulu.'),'error');return;}
-    $('thawingBatchForm').reset();
-    $('thawingStartedAt').value=inputDateTimeValue();
-    $('thawingFoodCategory').value='raw_animal';
-    fillThawingBatchOptions();
-    updateThawingBatchPreview();
-    $('thawingBatchDialog').showModal();
-  }
-
-  async function saveThawingBatch(e){
-    e.preventDefault();
-    const standard=thawingStandardById($('thawingBatchStandard').value);
-    const ropFish=!!$('thawingRopFish').checked;
-    const ropRemoved=!!$('thawingRopRemoved').checked;
-    const runningWater=standard?.method==='running_water';
-    if(runningWater&&!$('thawingRunningWaterFlow').checked){toast(thawingCopy('Confirm continuous running-water flow before starting.','Konfirmasi aliran air mengalir kontinu sebelum memulai.'),'error');return;}
-    if(ropFish&&standard?.method==='refrigeration'&&!ropRemoved){toast(thawingCopy('ROP fish must be removed from the reduced-oxygen environment before refrigerated thawing.','Ikan ROP harus dikeluarkan dari lingkungan reduced-oxygen sebelum pencairan dengan refrigerasi.'),'error');return;}
-    const payload={
-      kitchen_id:state.kitchen.id,
-      standard_id:$('thawingBatchStandard').value,
-      product_name:$('thawingBatchProduct').value.trim(),
-      batch_reference:$('thawingBatchRef').value.trim()||null,
-      quantity:nullableNumber($('thawingBatchQty').value),
-      quantity_unit:$('thawingBatchQtyUnit').value.trim()||null,
-      intended_use:$('thawingBatchUse').value.trim()||null,
-      food_category:$('thawingFoodCategory').value,
-      rop_fish:ropFish,
-      rop_package_removed_at:ropFish&&ropRemoved?new Date().toISOString():null,
-      rop_package_removed_by:ropFish&&ropRemoved?state.user.id:null,
-      running_water_flow_confirmed:runningWater?!!$('thawingRunningWaterFlow').checked:false,
-      source_equipment_id:$('thawingSourceEquipment').value||null,
-      thaw_equipment_id:$('thawingTargetEquipment').value||null,
-      thaw_location:$('thawingLocation').value.trim()||null,
-      started_at:new Date($('thawingStartedAt').value).toISOString(),
-      expected_complete_at:$('thawingExpectedAt').value?new Date($('thawingExpectedAt').value).toISOString():null,
-      created_by:state.user.id
-    };
-    const {error}=await db.from('thawing_batches').insert(payload);
-    if(error){toast(error.message,'error');return;}
-    $('thawingBatchDialog').close();
-    toast(thawingCopy('Thawing batch started.','Batch pencairan dimulai.'),'good');
-    await loadThawing();
-    await loadNotifications(false);
-  }
+  function fillThawingBatchOptions(){ $('thawingBatchStandard').innerHTML=state.thawingStandards.map(s=>`<option value="${esc(s.id)}">${esc(s.code)} — ${esc(s.name)}</option>`).join(''); const eq=(state.equipment||[]).filter(e=>e.active!==false); const opts='<option value="">Not specified</option>'+eq.map(e=>`<option value="${esc(e.id)}">${esc(e.code)} — ${esc(e.name)}</option>`).join(''); $('thawingSourceEquipment').innerHTML=opts; $('thawingTargetEquipment').innerHTML=opts; updateThawingBatchPreview(); }
+  function updateThawingBatchPreview(){ const s=thawingStandardById($('thawingBatchStandard')?.value); if(!s)return; $('thawingBatchStandardPreview').innerHTML=`<b>${esc(s.code)} — ${esc(s.name)}</b><br>${esc(thawingMethodLabel(s.method))} · ${esc(thawingLimitText(s))}${s.monitoring_interval_minutes?` · ${s.monitoring_interval_minutes} min interval`:''}${s.maximum_duration_minutes?` · max ${s.maximum_duration_minutes} min`:''}`; if(s.maximum_duration_minutes&&$('thawingStartedAt').value){ const d=new Date($('thawingStartedAt').value); d.setMinutes(d.getMinutes()+Number(s.maximum_duration_minutes)); $('thawingExpectedAt').value=inputDateTimeValue(d); } }
+  async function openThawingBatch(){ if(!state.thawingStandards.length)await fetchThawingStandards(false); if(!state.thawingStandards.length){toast(thawingCopy('Create an active thawing standard first.','Buat standar pencairan aktif terlebih dahulu.'),'error');return;} fillThawingBatchOptions(); $('thawingBatchForm').reset(); $('thawingStartedAt').value=inputDateTimeValue(); fillThawingBatchOptions(); $('thawingBatchDialog').showModal(); }
+  async function saveThawingBatch(e){ e.preventDefault(); const payload={kitchen_id:state.kitchen.id,standard_id:$('thawingBatchStandard').value,product_name:$('thawingBatchProduct').value.trim(),batch_reference:$('thawingBatchRef').value.trim()||null,quantity:nullableNumber($('thawingBatchQty').value),quantity_unit:$('thawingBatchQtyUnit').value.trim()||null,intended_use:$('thawingBatchUse').value.trim()||null,source_equipment_id:$('thawingSourceEquipment').value||null,thaw_equipment_id:$('thawingTargetEquipment').value||null,thaw_location:$('thawingLocation').value.trim()||null,started_at:new Date($('thawingStartedAt').value).toISOString(),expected_complete_at:$('thawingExpectedAt').value?new Date($('thawingExpectedAt').value).toISOString():null,created_by:state.user.id}; const {error}=await db.from('thawing_batches').insert(payload); if(error){toast(error.message,'error');return;} $('thawingBatchDialog').close(); toast(thawingCopy('Thawing batch started.','Batch pencairan dimulai.'),'good'); await loadThawing(); await loadNotifications(false); }
 
   function clearThawingPhotoDraft(){ for(const x of state.thawingPhotoDraft||[])if(x.previewUrl)URL.revokeObjectURL(x.previewUrl); state.thawingPhotoDraft=[]; renderThawingPhotoDraft(); }
   function renderThawingPhotoDraft(){ const el=$('thawingPhotoPreview');if(!el)return;el.innerHTML=(state.thawingPhotoDraft||[]).map((x,i)=>`<article class="receiving-photo-item"><img src="${esc(x.previewUrl)}" alt=""><select data-thaw-photo-kind="${i}"><option value="product" ${x.kind==='product'?'selected':''}>Product</option><option value="temperature" ${x.kind==='temperature'?'selected':''}>Temperature</option><option value="label" ${x.kind==='label'?'selected':''}>Label / Lot</option><option value="condition" ${x.kind==='condition'?'selected':''}>Condition</option><option value="corrective" ${x.kind==='corrective'?'selected':''}>Corrective</option><option value="other" ${x.kind==='other'?'selected':''}>Other</option></select><button type="button" class="icon-btn" data-remove-thaw-photo="${i}">×</button></article>`).join(''); }
@@ -1249,94 +1093,9 @@
   async function uploadThawingEvidence(batchId,readingId){ const saved=[]; for(let i=0;i<state.thawingPhotoDraft.length;i++){ const x=state.thawingPhotoDraft[i],path=`${state.kitchen.id}/${batchId}/${readingId}/${Date.now()}-${i}.jpg`; const up=await db.storage.from('thawing-evidence').upload(path,x.blob,{contentType:'image/jpeg',upsert:false}); if(up.error)throw up.error; const ins=await db.from('thawing_evidence').insert({kitchen_id:state.kitchen.id,batch_id:batchId,reading_id:readingId,storage_path:path,original_name:x.originalName,mime_type:'image/jpeg',file_size:x.blob.size,photo_kind:x.kind,uploaded_by:state.user.id}); if(ins.error)throw ins.error; saved.push(path); } return saved; }
   async function viewThawingEvidence(batchId){ const b=state.thawingBatches.find(x=>x.id===batchId); if(!b)return; const photos=b.evidence||[]; $('thawingEvidenceTitle').textContent=`${b.product_name}${b.batch_reference?' · '+b.batch_reference:''}`; if(!photos.length){$('thawingEvidenceGrid').innerHTML='<div class="empty">No photo evidence.</div>'; $('thawingEvidenceDialog').showModal();return;} const cards=[]; for(const p of photos){const {data,error}=await db.storage.from('thawing-evidence').createSignedUrl(p.storage_path,900); if(!error&&data?.signedUrl)cards.push(`<figure><img src="${esc(data.signedUrl)}" alt=""><figcaption><b>${esc(String(p.photo_kind||'evidence').replaceAll('_',' '))}</b><br>${esc(p.original_name||'')}</figcaption></figure>`);} $('thawingEvidenceGrid').innerHTML=cards.join('')||'<div class="empty">Photo evidence could not be loaded.</div>'; $('thawingEvidenceDialog').showModal(); }
 
-  function openThawingReading(id){
-    const b=state.thawingBatches.find(x=>x.id===id); if(!b)return;
-    if(['microwave','cook_from_frozen'].includes(b.method_snapshot)){toast(thawingCopy('This method is controlled by immediate transfer to cooking, not recurring thawing temperatures.','Metode ini dikontrol dengan transfer langsung ke proses memasak, bukan pemeriksaan suhu pencairan berulang.'),'error');return;}
-    $('thawingReadingBatchId').value=id;
-    $('thawingReadingTitle').textContent=b.product_name;
-    const isWater=b.method_snapshot==='running_water';
-    const exposure=thawingExposureMinutes(b);
-    const methodText=b.method_snapshot==='refrigeration'
-      ? `${thawingCopy('Food','Makanan')} ≤ ${b.max_temperature_snapshot ?? 5}${b.unit_snapshot||'°C'}`
-      : isWater
-        ? `${thawingCopy('Water','Air')} ≤ ${b.water_max_temperature_snapshot ?? 21}°C`
-        : (b.max_temperature_snapshot!=null?`≤ ${b.max_temperature_snapshot}${b.unit_snapshot}`:thawingCopy('Procedure based','Berbasis prosedur'));
-    $('thawingReadingContext').innerHTML=`<b>${esc(b.standard_code_snapshot)} — ${esc(b.standard_name_snapshot)}</b><br>${esc(methodText)}${b.regulatory_basis_snapshot?`<br><span class="thawing-regulatory-basis">${esc(b.regulatory_basis_snapshot)}</span>`:''}`;
-    $('thawingReadingTemp').value='';
-    $('thawingWaterTemp').value='';
-    $('thawingWaterTempWrap').classList.toggle('hidden',!isWater);
-    $('thawingWaterTemp').required=isWater;
-    const showExposure=isWater&&b.food_category==='raw_animal';
-    $('thawingExposureInfo').classList.toggle('hidden',!showExposure);
-    if(showExposure) $('thawingExposureInfo').innerHTML=`<b>${thawingCopy('Cumulative exposure above 5°C','Paparan kumulatif di atas 5°C')}: ${exposure} / 240 min</b><br>${thawingCopy('The 4-hour control includes running-water exposure and applicable preparation/cooling time.','Kontrol 4 jam mencakup paparan air mengalir serta waktu persiapan/pendinginan yang berlaku.')}`;
-    $('thawingReadingNotes').value='';
-    clearThawingPhotoDraft();
-    updateThawingReadingPreview();
-    $('thawingReadingDialog').showModal();
-  }
-
-  function updateThawingReadingPreview(){
-    const b=state.thawingBatches.find(x=>x.id===$('thawingReadingBatchId')?.value);
-    const product=nullableNumber($('thawingReadingTemp')?.value);
-    const water=nullableNumber($('thawingWaterTemp')?.value);
-    const el=$('thawingReadingPreview'); if(!el||!b)return;
-    if(product==null){el.className='monitor-result neutral';el.textContent=thawingCopy('Enter product temperature','Masukkan suhu produk');return;}
-    let out=false,detail='';
-    if(b.method_snapshot==='refrigeration'){
-      out=product>Number(b.max_temperature_snapshot ?? 5);
-    } else if(b.method_snapshot==='running_water'){
-      if(water==null){el.className='monitor-result neutral';el.textContent=thawingCopy('Enter running-water temperature','Masukkan suhu air mengalir');return;}
-      if(water>Number(b.water_max_temperature_snapshot ?? 21)) out=true;
-      if(b.food_category==='ready_to_eat'&&product>5) out=true;
-      if(b.food_category==='raw_animal'&&product>5) detail=thawingCopy(' · exposure timer active',' · timer paparan aktif');
-      if(b.food_category==='other'&&b.max_temperature_snapshot!=null&&product>Number(b.max_temperature_snapshot)) out=true;
-    } else if(b.max_temperature_snapshot!=null) out=product>Number(b.max_temperature_snapshot);
-    el.className=`monitor-result ${out?'out':'pass'}`;
-    el.textContent=out?thawingCopy('OUT OF LIMIT — corrective action required','DI LUAR BATAS — tindakan koreksi diperlukan'):thawingCopy('PASS — method control met','PASS — kontrol metode terpenuhi')+detail;
-  }
-
-  async function saveThawingReading(e){
-    e.preventDefault();
-    const batchId=$('thawingReadingBatchId').value;
-    const b=state.thawingBatches.find(x=>x.id===batchId);
-    const water=b?.method_snapshot==='running_water'?nullableNumber($('thawingWaterTemp').value):null;
-    const {data,error}=await db.from('thawing_readings').insert({
-      kitchen_id:state.kitchen.id,
-      batch_id:batchId,
-      actual_temperature:Number($('thawingReadingTemp').value),
-      unit:'°C',
-      water_temperature:water,
-      water_unit:'°C',
-      status:'PASS',
-      limit_text_snapshot:'',
-      notes:$('thawingReadingNotes').value.trim()||null,
-      recorded_by:state.user.id
-    }).select('*').single();
-    if(error){toast(error.message,'error');return;}
-    try{if(state.thawingPhotoDraft.length)await uploadThawingEvidence(batchId,data.id);}catch(photoError){toast(thawingCopy('Reading saved, but photo upload failed: ','Pembacaan tersimpan, tetapi unggah foto gagal: ')+(photoError.message||''),'error');}
-    clearThawingPhotoDraft(); $('thawingReadingDialog').close();
-    if(data.status==='OUT'){
-      await loadThawing(); openThawingAction(data.id,batchId); toast(thawingCopy('OUT reading saved — complete corrective action.','Pembacaan OUT disimpan — selesaikan tindakan koreksi.'),'error');
-    } else {
-      toast(thawingCopy('Thawing control check saved.','Pemeriksaan kontrol pencairan disimpan.'),'good'); await loadThawing();
-    }
-    await loadNotifications(false);
-  }
-
-  async function confirmThawingPackageRemoved(batchId){
-    const {error}=await db.rpc('confirm_thawing_package_removed',{p_batch_id:batchId});
-    if(error){toast(error.message,'error');return;}
-    toast(thawingCopy('Package-removal control confirmed.','Kontrol pelepasan kemasan dikonfirmasi.'),'good');
-    await loadThawing(); await loadNotifications(false);
-  }
-
-  async function confirmThawingCookingHandoff(batchId){
-    const {error}=await db.rpc('confirm_thawing_immediate_cooking',{p_batch_id:batchId});
-    if(error){toast(error.message,'error');return;}
-    toast(thawingCopy('Transfer to cooking confirmed.','Transfer ke proses memasak dikonfirmasi.'),'good');
-    await loadThawing(); await loadNotifications(false);
-  }
-
+  function openThawingReading(id){ const b=state.thawingBatches.find(x=>x.id===id); if(!b)return; $('thawingReadingBatchId').value=id; $('thawingReadingTitle').textContent=b.product_name; $('thawingReadingContext').innerHTML=`<b>${esc(b.standard_code_snapshot)} — ${esc(b.standard_name_snapshot)}</b><br>${thawingCopy('Limit','Batas')}: ${esc(b.max_temperature_snapshot!=null?`≤ ${b.max_temperature_snapshot}${b.unit_snapshot}`:'Procedure based')}`; $('thawingReadingTemp').value=''; $('thawingReadingNotes').value=''; clearThawingPhotoDraft(); updateThawingReadingPreview(); $('thawingReadingDialog').showModal(); }
+  function updateThawingReadingPreview(){ const b=state.thawingBatches.find(x=>x.id===$('thawingReadingBatchId')?.value); const v=nullableNumber($('thawingReadingTemp')?.value); const out=v!=null&&b?.max_temperature_snapshot!=null&&v>Number(b.max_temperature_snapshot); const el=$('thawingReadingPreview'); if(!el)return; el.className=`monitor-result ${v==null?'neutral':out?'out':'pass'}`; el.textContent=v==null?thawingCopy('Enter temperature','Masukkan suhu'):out?thawingCopy('OUT OF LIMIT — corrective action required','DI LUAR BATAS — tindakan koreksi diperlukan'):thawingCopy('PASS — within approved limit','PASS — dalam batas yang disetujui'); }
+  async function saveThawingReading(e){ e.preventDefault(); const batchId=$('thawingReadingBatchId').value; const {data,error}=await db.from('thawing_readings').insert({kitchen_id:state.kitchen.id,batch_id:batchId,actual_temperature:Number($('thawingReadingTemp').value),unit:'°C',status:'PASS',limit_text_snapshot:'',notes:$('thawingReadingNotes').value.trim()||null,recorded_by:state.user.id}).select('*').single(); if(error){toast(error.message,'error');return;} try{if(state.thawingPhotoDraft.length)await uploadThawingEvidence(batchId,data.id);}catch(photoError){toast(thawingCopy('Reading saved, but photo upload failed: ','Pembacaan tersimpan, tetapi unggah foto gagal: ')+(photoError.message||''),'error');} clearThawingPhotoDraft(); $('thawingReadingDialog').close(); if(data.status==='OUT'){ await loadThawing(); openThawingAction(data.id,batchId); toast(thawingCopy('OUT reading saved — complete corrective action.','Pembacaan OUT disimpan — selesaikan tindakan koreksi.'),'error'); } else { toast(thawingCopy('Thawing temperature saved.','Suhu pencairan disimpan.'),'good'); await loadThawing(); } await loadNotifications(false); }
   function openThawingAction(readingId,batchId=''){ const b=batchId?state.thawingBatches.find(x=>x.id===batchId):state.thawingBatches.find(x=>(x.readings||[]).some(r=>r.id===readingId)); const r=b?.readings?.find(x=>x.id===readingId); $('thawingActionReadingId').value=readingId; $('thawingActionImmediate').value=''; $('thawingActionDisposition').value=''; $('thawingActionFollowup').value=''; $('thawingActionNotes').value=''; $('thawingActionContext').textContent=b?`${b.product_name}${b.batch_reference?' · '+b.batch_reference:''}${r?' · '+r.actual_temperature+r.unit:''}`:thawingCopy('Thawing deviation','Deviasi pencairan'); $('thawingActionDialog').showModal(); }
   async function saveThawingAction(e){ e.preventDefault(); const {error}=await db.from('thawing_corrective_actions').insert({reading_id:$('thawingActionReadingId').value,immediate_action:$('thawingActionImmediate').value.trim(),product_disposition:$('thawingActionDisposition').value.trim()||null,followup_temperature:nullableNumber($('thawingActionFollowup').value),notes:$('thawingActionNotes').value.trim()||null,created_by:state.user.id}); if(error){toast(error.message,'error');return;} $('thawingActionDialog').close(); toast(thawingCopy('Corrective action saved.','Tindakan koreksi disimpan.'),'good'); await loadThawing(); await loadCorrectiveActions(); await loadNotifications(false); }
   function openThawingComplete(id){ $('thawingCompleteBatchId').value=id; $('thawingCompleteStatus').value='ready'; $('thawingCompleteNotes').value=''; $('thawingCompleteDialog').showModal(); }
@@ -1347,50 +1106,14 @@
   function openThawingVerify(id){ $('thawingVerifyActionId').value=id; $('thawingVerifyNotes').value=''; $('thawingVerifyDialog').showModal(); }
   async function verifyThawingAction(e){ e.preventDefault(); const {error}=await db.rpc('verify_thawing_corrective_action',{p_action_id:$('thawingVerifyActionId').value,p_notes:$('thawingVerifyNotes').value.trim()}); if(error){toast(error.message,'error');return;} $('thawingVerifyDialog').close(); toast(t('corrective.verifiedToast'),'good'); await loadCorrectiveActions(); await loadNotifications(false); }
 
-  function updateThawingStandardFields(){
-    const method=$('thawingStandardMethod')?.value||'refrigeration';
-    const water=method==='running_water';
-    const immediate=['microwave','cook_from_frozen'].includes(method);
-    $('thawingStandardWaterMaxWrap')?.classList.toggle('hidden',!water);
-    $('thawingStandardMaxTempWrap')?.classList.toggle('hidden',immediate);
-    $('thawingStandardIntervalWrap')?.classList.toggle('hidden',immediate||method==='refrigeration');
-    $('thawingStandardReminderWrap')?.classList.toggle('hidden',immediate||method==='refrigeration');
-    $('thawingStandardGraceWrap')?.classList.toggle('hidden',immediate||method==='refrigeration');
-    if(immediate) $('thawingStandardImmediateCooking').checked=true;
-    else if(['refrigeration','running_water'].includes(method)) $('thawingStandardImmediateCooking').checked=false;
-    $('thawingStandardDurationWrap')?.classList.toggle('hidden',immediate||method==='refrigeration');
-    if(water&&!$('thawingStandardWaterMax').value) $('thawingStandardWaterMax').value='21';
-    if(method==='refrigeration'&&!$('thawingStandardMaxTemp').value) $('thawingStandardMaxTemp').value='5';
-  }
-
-  function resetThawingStandardForm(){
-    $('thawingStandardForm').reset(); $('thawingStandardId').value=''; $('thawingStandardUnit').value='°C'; $('thawingStandardReminder').value='5'; $('thawingStandardGrace').value='15'; $('thawingStandardWaterMax').value=''; $('thawingStandardImmediateCooking').checked=false; $('thawingStandardRegulatoryBasis').value=''; $('thawingStandardFormTitle').textContent=thawingCopy('Add thawing standard','Tambah standar pencairan'); $('thawingStandardCancel').classList.add('hidden'); updateThawingStandardFields();
-  }
-
-  function renderThawingStandards(){
-    $('thawingStandardCount').textContent=state.thawingStandards.length;
-    $('thawingStandardList').innerHTML=state.thawingStandards.length?state.thawingStandards.map(x=>`<article class="setting-row ${x.active?'':'inactive'}"><div><strong>${esc(x.code)} — ${esc(x.name)}</strong><span>${esc(thawingMethodLabel(x.method))} · ${esc(thawingLimitText(x))}${x.monitoring_interval_minutes?` · ${x.monitoring_interval_minutes} min ${thawingCopy('property check','pemeriksaan properti')}`:''}${x.maximum_duration_minutes?` · ${thawingCopy('property max','maks properti')} ${x.maximum_duration_minutes} min`:''}</span>${x.regulatory_basis?`<span class="thawing-regulatory-basis">${esc(x.regulatory_basis)}</span>`:''}</div><div class="row-actions"><button class="secondary compact-btn" data-edit-thawing-standard="${esc(x.id)}">Edit</button><button class="secondary compact-btn" data-toggle-thawing-standard="${esc(x.id)}">${x.active?'Archive':'Restore'}</button></div></article>`).join(''):'<div class="empty">No thawing standards configured.</div>';
-  }
-
-  async function loadThawingSettings(){ applyThawingLanguage(); try{await fetchThawingStandards(true);renderThawingStandards();updateThawingStandardFields();}catch(e){toast(e.message,'error');} }
-
-  function editThawingStandard(id){
-    const x=state.thawingStandards.find(s=>s.id===id); if(!x)return;
-    $('thawingStandardId').value=x.id; $('thawingStandardCode').value=x.code; $('thawingStandardName').value=x.name; $('thawingStandardMethod').value=x.method; $('thawingStandardUnit').value=x.unit||'°C'; $('thawingStandardMaxTemp').value=x.max_temperature??''; $('thawingStandardWaterMax').value=x.water_max_temperature??''; $('thawingStandardInterval').value=x.monitoring_interval_minutes??''; $('thawingStandardDuration').value=x.maximum_duration_minutes??''; $('thawingStandardReminder').value=x.reminder_minutes??5; $('thawingStandardGrace').value=x.overdue_grace_minutes??15; $('thawingStandardImmediateCooking').checked=!!x.immediate_cooking_required; $('thawingStandardRegulatoryBasis').value=x.regulatory_basis||''; $('thawingStandardInstruction').value=x.post_thaw_instruction||''; $('thawingStandardVerify').checked=!!x.verification_required; $('thawingStandardNotes').value=x.notes||''; $('thawingStandardFormTitle').textContent=thawingCopy('Edit thawing standard','Edit standar pencairan'); $('thawingStandardCancel').classList.remove('hidden'); updateThawingStandardFields();
-  }
-
-  async function saveThawingStandard(e){
-    e.preventDefault();
-    const id=$('thawingStandardId').value,method=$('thawingStandardMethod').value;
-    const immediate=['microwave','cook_from_frozen'].includes(method)||$('thawingStandardImmediateCooking').checked;
-    const payload={kitchen_id:state.kitchen.id,code:$('thawingStandardCode').value.trim(),name:$('thawingStandardName').value.trim(),method,unit:$('thawingStandardUnit').value.trim()||'°C',max_temperature:immediate?null:nullableNumber($('thawingStandardMaxTemp').value),water_max_temperature:method==='running_water'?nullableNumber($('thawingStandardWaterMax').value):null,monitoring_interval_minutes:(method==='running_water'||method==='other')?nullableNumber($('thawingStandardInterval').value):null,maximum_duration_minutes:(method==='running_water'||method==='other')?nullableNumber($('thawingStandardDuration').value):null,reminder_minutes:Number($('thawingStandardReminder').value||5),overdue_grace_minutes:Number($('thawingStandardGrace').value||15),immediate_cooking_required:immediate,regulatory_basis:$('thawingStandardRegulatoryBasis').value.trim()||null,post_thaw_instruction:$('thawingStandardInstruction').value.trim()||null,verification_required:$('thawingStandardVerify').checked,notes:$('thawingStandardNotes').value.trim()||null,updated_by:state.user.id};
-    let q=id?db.from('thawing_standards').update(payload).eq('id',id):db.from('thawing_standards').insert({...payload,created_by:state.user.id});
-    const {error}=await q; if(error){toast(error.message,'error');return;}
-    resetThawingStandardForm(); toast(thawingCopy('Thawing standard saved.','Standar pencairan disimpan.'),'good'); await loadThawingSettings();
-  }
+  function resetThawingStandardForm(){ $('thawingStandardForm').reset(); $('thawingStandardId').value=''; $('thawingStandardUnit').value='°C'; $('thawingStandardReminder').value='15'; $('thawingStandardGrace').value='30'; $('thawingStandardFormTitle').textContent=thawingCopy('Add thawing standard','Tambah standar pencairan'); $('thawingStandardCancel').classList.add('hidden'); }
+  function renderThawingStandards(){ $('thawingStandardCount').textContent=state.thawingStandards.length; $('thawingStandardList').innerHTML=state.thawingStandards.length?state.thawingStandards.map(x=>`<article class="setting-row ${x.active?'':'inactive'}"><div><strong>${esc(x.code)} — ${esc(x.name)}</strong><span>${esc(thawingMethodLabel(x.method))} · ${esc(thawingLimitText(x))}${x.monitoring_interval_minutes?` · ${x.monitoring_interval_minutes} min`:''}${x.maximum_duration_minutes?` · max ${x.maximum_duration_minutes} min`:''}</span></div><div class="row-actions"><button class="secondary compact-btn" data-edit-thawing-standard="${esc(x.id)}">Edit</button><button class="secondary compact-btn" data-toggle-thawing-standard="${esc(x.id)}">${x.active?'Archive':'Restore'}</button></div></article>`).join(''):'<div class="empty">No thawing standards configured.</div>'; }
+  async function loadThawingSettings(){ applyThawingLanguage(); try{await fetchThawingStandards(true);renderThawingStandards();}catch(e){toast(e.message,'error');} }
+  function editThawingStandard(id){ const x=state.thawingStandards.find(s=>s.id===id); if(!x)return; $('thawingStandardId').value=x.id;$('thawingStandardCode').value=x.code;$('thawingStandardName').value=x.name;$('thawingStandardMethod').value=x.method;$('thawingStandardUnit').value=x.unit||'°C';$('thawingStandardMaxTemp').value=x.max_temperature??'';$('thawingStandardInterval').value=x.monitoring_interval_minutes??'';$('thawingStandardDuration').value=x.maximum_duration_minutes??'';$('thawingStandardReminder').value=x.reminder_minutes??15;$('thawingStandardGrace').value=x.overdue_grace_minutes??30;$('thawingStandardInstruction').value=x.post_thaw_instruction||'';$('thawingStandardVerify').checked=!!x.verification_required;$('thawingStandardNotes').value=x.notes||'';$('thawingStandardFormTitle').textContent=thawingCopy('Edit thawing standard','Edit standar pencairan');$('thawingStandardCancel').classList.remove('hidden'); }
+  async function saveThawingStandard(e){ e.preventDefault(); const id=$('thawingStandardId').value,payload={kitchen_id:state.kitchen.id,code:$('thawingStandardCode').value.trim(),name:$('thawingStandardName').value.trim(),method:$('thawingStandardMethod').value,unit:$('thawingStandardUnit').value.trim()||'°C',max_temperature:nullableNumber($('thawingStandardMaxTemp').value),monitoring_interval_minutes:nullableNumber($('thawingStandardInterval').value),maximum_duration_minutes:nullableNumber($('thawingStandardDuration').value),reminder_minutes:Number($('thawingStandardReminder').value||15),overdue_grace_minutes:Number($('thawingStandardGrace').value||30),post_thaw_instruction:$('thawingStandardInstruction').value.trim()||null,verification_required:$('thawingStandardVerify').checked,notes:$('thawingStandardNotes').value.trim()||null,updated_by:state.user.id}; let q=id?db.from('thawing_standards').update(payload).eq('id',id):db.from('thawing_standards').insert({...payload,created_by:state.user.id}); const {error}=await q; if(error){toast(error.message,'error');return;} resetThawingStandardForm(); toast(thawingCopy('Thawing standard saved.','Standar pencairan disimpan.'),'good'); await loadThawingSettings(); }
   async function toggleThawingStandard(id){ const x=state.thawingStandards.find(s=>s.id===id); if(!x)return; const {error}=await db.from('thawing_standards').update({active:!x.active,updated_by:state.user.id}).eq('id',id); if(error){toast(error.message,'error');return;} await loadThawingSettings(); }
 
-  async function getThawingRecordsForDate(date){ const start=kitchenDayBoundaryUtc(date),end=kitchenDayBoundaryUtc(addCalendarDays(date,1)); const {data,error}=await db.from('thawing_batches').select(`*,creator:profiles!thawing_batches_created_by_fkey(full_name,email),completer:profiles!thawing_batches_completed_by_fkey(full_name,email),verifier:profiles!thawing_batches_verified_by_fkey(full_name,email),evidence:thawing_evidence(id,reading_id,storage_path,original_name,photo_kind,uploaded_at),readings:thawing_readings(id,actual_temperature,unit,water_temperature,water_unit,exposure_minutes_snapshot,status,limit_text_snapshot,notes,recorded_at,recordedBy:profiles!thawing_readings_recorded_by_fkey(full_name,email),actions:thawing_corrective_actions(id,immediate_action,product_disposition,followup_temperature,notes,created_at,verified_at,verification_notes,verifier:profiles!thawing_corrective_actions_verified_by_fkey(full_name,email)))`).eq('kitchen_id',state.kitchen.id).gte('started_at',start).lt('started_at',end).order('started_at',{ascending:false}); if(error)throw error; return data||[]; }
+  async function getThawingRecordsForDate(date){ const start=kitchenDayBoundaryUtc(date),end=kitchenDayBoundaryUtc(addCalendarDays(date,1)); const {data,error}=await db.from('thawing_batches').select(`*,creator:profiles!thawing_batches_created_by_fkey(full_name,email),completer:profiles!thawing_batches_completed_by_fkey(full_name,email),verifier:profiles!thawing_batches_verified_by_fkey(full_name,email),evidence:thawing_evidence(id,reading_id,storage_path,original_name,photo_kind,uploaded_at),readings:thawing_readings(id,actual_temperature,unit,status,limit_text_snapshot,notes,recorded_at,recordedBy:profiles!thawing_readings_recorded_by_fkey(full_name,email),actions:thawing_corrective_actions(id,immediate_action,product_disposition,followup_temperature,notes,created_at,verified_at,verification_notes,verifier:profiles!thawing_corrective_actions_verified_by_fkey(full_name,email)))`).eq('kitchen_id',state.kitchen.id).gte('started_at',start).lt('started_at',end).order('started_at',{ascending:false}); if(error)throw error; return data||[]; }
   async function loadThawingRecords(){ try{const date=$('recordDate').value||kitchenDate(),rows=await getThawingRecordsForDate(date); state.thawingBatches=rows; const ready=rows.filter(x=>x.status==='ready').length,out=rows.reduce((n,b)=>n+(b.readings||[]).filter(r=>r.status==='OUT').length,0); $('thawingRecordsSummary').innerHTML=`<span>${rows.length} ${thawingCopy('batches','batch')}</span><span>${ready} ${thawingCopy('ready','siap')}</span><span>${out} ${thawingCopy('deviations','deviasi')}</span>`; $('thawingRecordsBody').innerHTML=rows.length?rows.map(b=>{const r=latestThawReading(b);return `<tr><td>${fmtDateTime(b.started_at)}</td><td><b>${esc(b.product_name)}</b>${b.batch_reference?`<br>${esc(b.batch_reference)}`:''}</td><td>${esc(thawingMethodLabel(b.method_snapshot))}<br><span class="muted">${esc(b.standard_code_snapshot)}</span></td><td>${esc(b.thaw_location||'—')}</td><td>${r?`${esc(r.actual_temperature)}${esc(r.unit)} · ${esc(r.status)}`:'—'}</td><td>${esc(String(b.status).toUpperCase())}</td><td>${esc(b.creator?.full_name||b.creator?.email||'Staff')}</td><td>${(b.readings||[]).filter(x=>x.status==='OUT').length} OUT${(b.evidence||[]).length?`<br><button class="secondary compact-btn" type="button" data-thaw-record-evidence="${esc(b.id)}">${thawingCopy('Photos','Foto')} · ${(b.evidence||[]).length}</button>`:''}${b.verification_status==='PENDING'&&hasRole('supervisor')?`<br><button class="secondary compact-btn" type="button" data-verify-thawing-batch="${esc(b.id)}">${thawingCopy('Verify batch','Verifikasi batch')}</button>`:b.verification_status==='VERIFIED'?`<br><span class="status-verified">VERIFIED</span>`:''}</td></tr>`;}).join(''):`<tr><td colspan="8">${thawingCopy('No thawing batches started on this date.','Tidak ada batch pencairan yang dimulai pada tanggal ini.')}</td></tr>`;}catch(e){toast(e.message,'error');} }
 
   function openThawingBatchVerify(id){ $('thawingBatchVerifyId').value=id; $('thawingBatchVerifyNotes').value=''; $('thawingBatchVerifyDialog').showModal(); }
@@ -5309,18 +5032,19 @@ ${r.result}`);}
     // v3.9.2 Thawing / Defrost Control
     $('refreshThawing')?.addEventListener('click',loadThawing);
     $('newThawingBatchBtn')?.addEventListener('click',openThawingBatch);
-    $('thawingBatchStandard')?.addEventListener('change',updateThawingBatchPreview); $('thawingStartedAt')?.addEventListener('change',updateThawingBatchPreview); $('thawingRopFish')?.addEventListener('change',updateThawingBatchPreview);
+    $('thawingBatchStandard')?.addEventListener('change',updateThawingBatchPreview);
+    $('thawingStartedAt')?.addEventListener('change',updateThawingBatchPreview);
     $('thawingBatchForm')?.addEventListener('submit',saveThawingBatch);
     $('closeThawingBatch')?.addEventListener('click',()=>$('thawingBatchDialog').close()); $('cancelThawingBatch')?.addEventListener('click',()=>$('thawingBatchDialog').close());
-    $('thawingBatchList')?.addEventListener('click',e=>{const r=e.target.closest('[data-thaw-reading]'),c=e.target.closest('[data-thaw-complete]'),a=e.target.closest('[data-thaw-actions]'),ph=e.target.closest('[data-thaw-evidence]'),rop=e.target.closest('[data-thaw-rop-removed]'),cook=e.target.closest('[data-thaw-cooking-handoff]');if(r)openThawingReading(r.dataset.thawReading);if(c)openThawingComplete(c.dataset.thawComplete);if(a)navigate('corrective');if(ph)viewThawingEvidence(ph.dataset.thawEvidence);if(rop)confirmThawingPackageRemoved(rop.dataset.thawRopRemoved);if(cook)confirmThawingCookingHandoff(cook.dataset.thawCookingHandoff);});
+    $('thawingBatchList')?.addEventListener('click',e=>{const r=e.target.closest('[data-thaw-reading]'),c=e.target.closest('[data-thaw-complete]'),a=e.target.closest('[data-thaw-actions]'),ph=e.target.closest('[data-thaw-evidence]');if(r)openThawingReading(r.dataset.thawReading);if(c)openThawingComplete(c.dataset.thawComplete);if(a)navigate('corrective');if(ph)viewThawingEvidence(ph.dataset.thawEvidence);});
     $('thawingPhotoInput')?.addEventListener('change',e=>addThawingPhotos(e.target.files)); $('thawingPhotoPreview')?.addEventListener('change',e=>{const x=e.target.closest('[data-thaw-photo-kind]');if(x&&state.thawingPhotoDraft[Number(x.dataset.thawPhotoKind)])state.thawingPhotoDraft[Number(x.dataset.thawPhotoKind)].kind=x.value;}); $('thawingPhotoPreview')?.addEventListener('click',e=>{const b=e.target.closest('[data-remove-thaw-photo]');if(!b)return;const i=Number(b.dataset.removeThawPhoto),[x]=state.thawingPhotoDraft.splice(i,1);if(x?.previewUrl)URL.revokeObjectURL(x.previewUrl);renderThawingPhotoDraft();});
     $('closeThawingEvidence')?.addEventListener('click',()=>$('thawingEvidenceDialog').close()); $('thawingEvidenceDialog')?.addEventListener('click',e=>{if(e.target===$('thawingEvidenceDialog'))$('thawingEvidenceDialog').close();});
-    $('thawingReadingTemp')?.addEventListener('input',updateThawingReadingPreview); $('thawingWaterTemp')?.addEventListener('input',updateThawingReadingPreview); $('thawingReadingForm')?.addEventListener('submit',saveThawingReading); $('closeThawingReading')?.addEventListener('click',()=>$('thawingReadingDialog').close()); $('cancelThawingReading')?.addEventListener('click',()=>$('thawingReadingDialog').close());
+    $('thawingReadingTemp')?.addEventListener('input',updateThawingReadingPreview); $('thawingReadingForm')?.addEventListener('submit',saveThawingReading); $('closeThawingReading')?.addEventListener('click',()=>$('thawingReadingDialog').close()); $('cancelThawingReading')?.addEventListener('click',()=>$('thawingReadingDialog').close());
     $('thawingActionForm')?.addEventListener('submit',saveThawingAction); $('closeThawingAction')?.addEventListener('click',()=>$('thawingActionDialog').close()); $('cancelThawingAction')?.addEventListener('click',()=>$('thawingActionDialog').close());
     $('thawingCompleteForm')?.addEventListener('submit',saveThawingComplete); $('closeThawingComplete')?.addEventListener('click',()=>$('thawingCompleteDialog').close()); $('cancelThawingComplete')?.addEventListener('click',()=>$('thawingCompleteDialog').close());
     $('thawingVerifyForm')?.addEventListener('submit',verifyThawingAction); $('closeThawingVerify')?.addEventListener('click',()=>$('thawingVerifyDialog').close()); $('cancelThawingVerify')?.addEventListener('click',()=>$('thawingVerifyDialog').close());
     $('correctiveList')?.addEventListener('click',e=>{const c=e.target.closest('[data-thaw-correct-reading]'),v=e.target.closest('[data-thaw-verify-action]');if(c)openThawingAction(c.dataset.thawCorrectReading);if(v)openThawingVerify(v.dataset.thawVerifyAction);});
-    $('thawingStandardForm')?.addEventListener('submit',saveThawingStandard); $('thawingStandardMethod')?.addEventListener('change',updateThawingStandardFields); $('thawingStandardCancel')?.addEventListener('click',resetThawingStandardForm); $('thawingStandardList')?.addEventListener('click',e=>{const ed=e.target.closest('[data-edit-thawing-standard]'),tg=e.target.closest('[data-toggle-thawing-standard]');if(ed)editThawingStandard(ed.dataset.editThawingStandard);if(tg)toggleThawingStandard(tg.dataset.toggleThawingStandard);});
+    $('thawingStandardForm')?.addEventListener('submit',saveThawingStandard); $('thawingStandardCancel')?.addEventListener('click',resetThawingStandardForm); $('thawingStandardList')?.addEventListener('click',e=>{const ed=e.target.closest('[data-edit-thawing-standard]'),tg=e.target.closest('[data-toggle-thawing-standard]');if(ed)editThawingStandard(ed.dataset.editThawingStandard);if(tg)toggleThawingStandard(tg.dataset.toggleThawingStandard);});
     $('thawingRecordsBody')?.addEventListener('click',e=>{const b=e.target.closest('[data-verify-thawing-batch]'),ph=e.target.closest('[data-thaw-record-evidence]');if(b)openThawingBatchVerify(b.dataset.verifyThawingBatch);if(ph)viewThawingEvidence(ph.dataset.thawRecordEvidence);}); $('thawingBatchVerifyForm')?.addEventListener('submit',verifyThawingBatch); $('closeThawingBatchVerify')?.addEventListener('click',()=>$('thawingBatchVerifyDialog').close()); $('cancelThawingBatchVerify')?.addEventListener('click',()=>$('thawingBatchVerifyDialog').close());
     $('thawingRecordViewBtn')?.addEventListener('click',()=>runThawingReport('view')); $('thawingRecordDownloadBtn')?.addEventListener('click',()=>runThawingReport('download')); $('thawingRecordPrintBtn')?.addEventListener('click',()=>runThawingReport('print'));
 

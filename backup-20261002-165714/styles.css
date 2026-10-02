@@ -520,22 +520,3 @@ button{
   .team-role-control{grid-template-columns:1fr}
   .team-role-control button,.team-member-actions>button{width:100%}
 }
-
-
-/* =========================================================
-   QR DIRECT-ROUTE STARTUP
-========================================================= */
-.startup-shell{min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--bg,#f6f7f8)}
-.startup-card{display:flex;align-items:center;gap:14px;max-width:360px;padding:18px 20px;border:1px solid var(--line,#e5e7eb);border-radius:14px;background:var(--card,#fff);box-shadow:0 8px 28px rgba(0,0,0,.05)}
-.startup-card>div:last-child{display:grid;gap:3px}.startup-card strong{font-size:14px}.startup-card span{font-size:11px;color:var(--muted,#6b7280);line-height:1.45}
-.qr-target-flash{outline:2px solid currentColor;outline-offset:3px;animation:qrTargetFade 1.8s ease-out forwards}
-@keyframes qrTargetFade{0%{outline-width:3px}100%{outline-color:transparent}}
-
-/* =========================================================
-   THAWING CONTROL V4 — METHOD-BASED FDA CONTROLS
-========================================================= */
-.thawing-regulatory-basis{display:block;margin-top:4px;font-size:10px;color:var(--muted)}
-.thawing-exposure-meter{display:grid;gap:5px}.thawing-exposure-meter strong{font-size:12px}
-.thawing-method-note{margin-top:6px;font-size:10px;color:var(--muted);line-height:1.5}
-.thawing-batch-card .card-actions{align-items:center}
-.thawing-control-chip{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:4px 7px;font-size:9px;font-weight:900;letter-spacing:.04em}
