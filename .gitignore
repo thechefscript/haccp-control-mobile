@@ -24,3 +24,6 @@ android/app/build/
 Thumbs.db
 android-icon-backup-*/
 database-backup-pre-saas/
+
+# Supabase local CLI state
+/supabase/.temp/
