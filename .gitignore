@@ -22,3 +22,5 @@ android/app/build/
 *.log
 .DS_Store
 Thumbs.db
+android-icon-backup-*/
+database-backup-pre-saas/
